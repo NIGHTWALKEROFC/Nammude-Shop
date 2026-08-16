@@ -9,19 +9,17 @@ import {
   onSnapshot, query, orderBy, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  getStorage, ref, uploadBytes, getDownloadURL,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-import {
   getMessaging, getToken, isSupported as messagingIsSupported,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
-import { firebaseConfig, VAPID_KEY, SHOP_ID } from "../../shared/js/firebase-config.js";
+import {
+  firebaseConfig, VAPID_KEY, SHOP_ID, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET,
+} from "../../shared/js/firebase-config.js";
 import { formatCurrency } from "../../shared/js/utils.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -343,7 +341,8 @@ async function deleteProduct(id) {
   await deleteDoc(doc(db, "shops", SHOP_ID, "products", id));
 }
 
-// Resize/compress before upload to keep Firebase Storage usage low.
+// Resize/compress before upload, then send to Cloudinary (free tier, no
+// billing card needed — Firebase Storage now requires the paid Blaze plan).
 async function uploadProductImage(file) {
   const MAX_DIM = 900;
   const blob = await new Promise((resolve) => {
@@ -358,10 +357,18 @@ async function uploadProductImage(file) {
     };
     img.src = URL.createObjectURL(file);
   });
-  const path = `shops/${SHOP_ID}/products/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
-  return getDownloadURL(storageRef);
+
+  const formData = new FormData();
+  formData.append("file", blob);
+  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    { method: "POST", body: formData }
+  );
+  if (!res.ok) throw new Error("Image upload failed");
+  const data = await res.json();
+  return data.secure_url; // saved on the product doc, same as the old Storage URL was
 }
 
 $("#product-form [name='imageFile']").addEventListener("change", (e) => {
