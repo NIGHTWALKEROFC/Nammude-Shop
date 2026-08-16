@@ -1,0 +1,144 @@
+// shared/js/i18n.js
+// One dictionary, two languages. Add a new key here and it is available
+// everywhere the site calls t('key'). Keep keys short and lowerCamelCase.
+
+export const STRINGS = {
+  en: {
+    chooseLanguage: "Choose Language",
+    english: "English",
+    malayalam: "മലയാളം",
+    continue: "Continue",
+    addHomeTitle: "Add this shop to your Home Screen",
+    addHomeBody: "Quickly access this shop anytime.",
+    addHomeBtn: "Add to Home Screen",
+    notNow: "Not Now",
+    notifyTitle: "Stay Updated",
+    notifyBody: "Get notifications about new products, price changes, stock availability and shop announcements.",
+    enableNotifications: "Enable Notifications",
+    search: "Search products…",
+    categories: "Categories",
+    allProducts: "All Products",
+    cart: "Cart",
+    orders: "My Orders",
+    notifications: "Notifications",
+    contactShop: "Contact Shop",
+    open: "Open",
+    closed: "Closed",
+    outOfStock: "Out of Stock",
+    addToCart: "Add to Cart",
+    subtotal: "Subtotal",
+    total: "Total",
+    placeOrder: "Place Order",
+    yourCartEmpty: "Your cart is empty",
+    customerName: "Your Name",
+    phoneNumber: "Phone Number",
+    address: "Delivery Address",
+    orderNote: "Order Note (optional)",
+    orderPlaced: "Order Placed Successfully",
+    orderId: "Order ID",
+    trackOrder: "Track this order",
+    checkOrderStatus: "Check Order Status",
+    enterOrderId: "Enter your Order ID",
+    check: "Check",
+    statusNew: "New",
+    statusConfirmed: "Confirmed",
+    statusPreparing: "Preparing",
+    statusReady: "Ready",
+    statusCompleted: "Completed",
+    statusCancelled: "Cancelled",
+    noNotifications: "No notifications yet",
+    close: "Close",
+    callShop: "Call Shop",
+    whatsappShop: "WhatsApp Shop",
+    quantity: "Qty",
+    remove: "Remove",
+    back: "Back",
+    loading: "Loading…",
+    errorGeneric: "Something went wrong. Please try again.",
+    stockChanged: "Some items changed since you added them. Please review your cart.",
+    fieldRequired: "This field is required",
+    home: "Home",
+  },
+  ml: {
+    chooseLanguage: "ഭാഷ തിരഞ്ഞെടുക്കുക",
+    english: "English",
+    malayalam: "മലയാളം",
+    continue: "തുടരുക",
+    addHomeTitle: "ഈ ഷോപ്പ് ഹോം സ്ക്രീനിലേക്ക് ചേർക്കുക",
+    addHomeBody: "എപ്പോൾ വേണമെങ്കിലും വേഗത്തിൽ എത്തിച്ചേരാം.",
+    addHomeBtn: "ഹോം സ്ക്രീനിലേക്ക് ചേർക്കുക",
+    notNow: "ഇപ്പോൾ വേണ്ട",
+    notifyTitle: "അപ്‌ഡേറ്റുകൾ അറിയാം",
+    notifyBody: "പുതിയ ഉൽപ്പന്നങ്ങൾ, വില മാറ്റങ്ങൾ, സ്റ്റോക്ക് ലഭ്യത, അറിയിപ്പുകൾ എന്നിവ അറിയാൻ.",
+    enableNotifications: "അറിയിപ്പുകൾ ഓണാക്കുക",
+    search: "ഉൽപ്പന്നങ്ങൾ തിരയുക…",
+    categories: "വിഭാഗങ്ങൾ",
+    allProducts: "എല്ലാ ഉൽപ്പന്നങ്ങളും",
+    cart: "കാർട്ട്",
+    orders: "എന്റെ ഓർഡറുകൾ",
+    notifications: "അറിയിപ്പുകൾ",
+    contactShop: "ഷോപ്പുമായി ബന്ധപ്പെടുക",
+    open: "തുറന്നിരിക്കുന്നു",
+    closed: "അടച്ചിരിക്കുന്നു",
+    outOfStock: "സ്റ്റോക്ക് ഇല്ല",
+    addToCart: "കാർട്ടിൽ ചേർക്കുക",
+    subtotal: "സബ്ടോട്ടൽ",
+    total: "ആകെ",
+    placeOrder: "ഓർഡർ ചെയ്യുക",
+    yourCartEmpty: "നിങ്ങളുടെ കാർട്ട് ശൂന്യമാണ്",
+    customerName: "നിങ്ങളുടെ പേര്",
+    phoneNumber: "ഫോൺ നമ്പർ",
+    address: "ഡെലിവറി വിലാസം",
+    orderNote: "ഓർഡർ കുറിപ്പ് (ഐച്ഛികം)",
+    orderPlaced: "ഓർഡർ വിജയകരമായി നൽകി",
+    orderId: "ഓർഡർ ഐഡി",
+    trackOrder: "ഈ ഓർഡർ ട്രാക്ക് ചെയ്യുക",
+    checkOrderStatus: "ഓർഡർ സ്റ്റാറ്റസ് പരിശോധിക്കുക",
+    enterOrderId: "നിങ്ങളുടെ ഓർഡർ ഐഡി നൽകുക",
+    check: "പരിശോധിക്കുക",
+    statusNew: "പുതിയത്",
+    statusConfirmed: "സ്ഥിരീകരിച്ചു",
+    statusPreparing: "തയ്യാറാക്കുന്നു",
+    statusReady: "തയ്യാർ",
+    statusCompleted: "പൂർത്തിയായി",
+    statusCancelled: "റദ്ദാക്കി",
+    noNotifications: "ഇതുവരെ അറിയിപ്പുകൾ ഇല്ല",
+    close: "അടയ്ക്കുക",
+    callShop: "ഷോപ്പിനെ വിളിക്കുക",
+    whatsappShop: "വാട്സ്ആപ്പ്",
+    quantity: "എണ്ണം",
+    remove: "നീക്കം ചെയ്യുക",
+    back: "പിന്നോട്ട്",
+    loading: "ലോഡ് ചെയ്യുന്നു…",
+    errorGeneric: "എന്തോ കുഴപ്പം സംഭവിച്ചു. വീണ്ടും ശ്രമിക്കുക.",
+    stockChanged: "നിങ്ങൾ ചേർത്തതിനുശേഷം ചില ഉൽപ്പന്നങ്ങൾ മാറി. കാർട്ട് പരിശോധിക്കുക.",
+    fieldRequired: "ഈ ഫീൽഡ് നിർബന്ധമാണ്",
+    home: "ഹോം",
+  },
+};
+
+const LANG_KEY = "shop_lang";
+
+export function getLang() {
+  return localStorage.getItem(LANG_KEY) || "en";
+}
+
+export function setLang(lang) {
+  localStorage.setItem(LANG_KEY, lang);
+}
+
+export function t(key) {
+  const lang = getLang();
+  return (STRINGS[lang] && STRINGS[lang][key]) || STRINGS.en[key] || key;
+}
+
+// Apply translations to every element with data-i18n="key" inside root.
+export function applyTranslations(root = document) {
+  root.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  root.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder")));
+  });
+  document.documentElement.lang = getLang();
+}
