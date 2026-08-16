@@ -28,14 +28,18 @@ service cloud.firestore {
              after.diff(before).affectedKeys().hasOnly(['stock']);
     }
 
-    function isValidNewOrder() {
+    function isValidNewOrder(shopId) {
       let d = request.resource.data;
       return d.status == 'New' &&
              d.shopId is string &&
              d.customerName is string && d.customerName.size() > 0 &&
              d.phone is string && d.phone.size() > 0 &&
              d.items is list && d.items.size() > 0 &&
-             d.total is number && d.total >= 0;
+             d.total is number && d.total >= 0 &&
+             // Server-side enforcement of the shop's open/closed toggle —
+             // mirrors the client-side check in checkout, but this is the
+             // one that actually can't be bypassed from devtools.
+             get(/databases/$(database)/documents/shops/$(shopId)).data.isOpen != false;
       // Item-level price/stock correctness is enforced by
       // isValidStockDecrement() running on each product document inside the
       // same transaction — the app always copies items[].price straight
@@ -67,7 +71,7 @@ service cloud.firestore {
         // effectively requires already knowing that code.
         allow get: if true;
         allow list: if isAdmin();
-        allow create: if isValidNewOrder();
+        allow create: if isValidNewOrder(shopId);
         allow update, delete: if isAdmin();   // only the shop can change order status
       }
 
