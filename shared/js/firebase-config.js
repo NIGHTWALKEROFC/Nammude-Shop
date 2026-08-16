@@ -11,18 +11,18 @@
 // Never commit a service-account JSON file - that one IS secret.
 
 export const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyBgf9mNKgk1wXrd9VDPxWWul8Mr7dA9dQ0",
+  authDomain: "localshop-website.firebaseapp.com",
+  projectId: "localshop-website",
+  storageBucket: "localshop-website.firebasestorage.app",
+  messagingSenderId: "42171379357",
+  appId: "1:42171379357:web:86bc42a7ebb263fe70ae74",
 };
 
 // Used only for Web Push (Firebase Cloud Messaging).
 // Firebase Console → Project Settings → Cloud Messaging → Web configuration
 // → "Web Push certificates" → Generate key pair.
-export const VAPID_KEY = "YOUR_VAPID_PUBLIC_KEY";
+export const VAPID_KEY = "BNo2q79bPTVZviQ6e1WLMvqLZthdaEMx7UTdgpZI9lYSkpoyApaWsixT9kDaP6pRf8Z6keQ9iY3P9irOYJTb91Q";
 
 // The shop this deployment belongs to. If you ever host more than one shop
 // from the same Firebase project, give each shop a different ID here and
