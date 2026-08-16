@@ -395,6 +395,13 @@ $("#checkout-form").addEventListener("submit", async (e) => {
   const items = Object.entries(cart);
   if (items.length === 0) { submitBtn.disabled = false; submitBtn.textContent = t("placeOrder"); return; }
 
+  if (shopData.isOpen === false) {
+    toast(t("shopClosedError"));
+    submitBtn.disabled = false;
+    submitBtn.textContent = t("placeOrder");
+    return;
+  }
+
   const orderCode = generateOrderCode(shopData.orderPrefix || "SHOP");
   const customerName = form.customerName.value.trim();
   const phone = form.phone.value.trim();
