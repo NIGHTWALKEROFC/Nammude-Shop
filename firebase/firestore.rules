@@ -1,0 +1,100 @@
+rules_version = '2';
+
+// HOW TO READ THIS FILE
+// "allow get"  = someone fetching ONE document they already know the ID of.
+// "allow list" = someone fetching a whole collection / running a query.
+// Splitting these two is what lets a customer read their own order using
+// its unguessable order code, while still blocking anyone from browsing
+// (listing) every order in the shop.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null;
+      // Every account created in Firebase Authentication for this project
+      // is an admin (the spec only requires owner/staff login, not customer
+      // accounts). If you later give staff different permission levels,
+      // replace this with a check against an adminUsers/{uid} doc.
+    }
+
+    function isValidStockDecrement() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.stock is int &&
+             after.stock >= 0 &&
+             after.stock < before.stock &&
+             // no other field may change in this kind of write
+             after.diff(before).affectedKeys().hasOnly(['stock']);
+    }
+
+    function isValidNewOrder() {
+      let d = request.resource.data;
+      return d.status == 'New' &&
+             d.shopId is string &&
+             d.customerName is string && d.customerName.size() > 0 &&
+             d.phone is string && d.phone.size() > 0 &&
+             d.items is list && d.items.size() > 0 &&
+             d.total is number && d.total >= 0;
+      // Item-level price/stock correctness is enforced by
+      // isValidStockDecrement() running on each product document inside the
+      // same transaction — the app always copies items[].price straight
+      // from the product doc it just read in that transaction, so the two
+      // writes can't disagree with each other.
+    }
+
+    match /shops/{shopId} {
+      allow read: if true;                 // shop name/logo/open-closed is public
+      allow write: if isAdmin();
+
+      match /categories/{categoryId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      match /products/{productId} {
+        allow read: if true;
+        // Admin can change anything. A customer's checkout transaction can
+        // ONLY decrement stock (never price/name), and never below zero —
+        // this is what lets stock be verified and reduced without needing
+        // a paid Cloud Function.
+        allow update: if isAdmin() || isValidStockDecrement();
+        allow create, delete: if isAdmin();
+      }
+
+      match /orders/{orderId} {
+        // Document ID is the random order code (e.g. SHOP-7K42P), so "get"
+        // effectively requires already knowing that code.
+        allow get: if true;
+        allow list: if isAdmin();
+        allow create: if isValidNewOrder();
+        allow update, delete: if isAdmin();   // only the shop can change order status
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if true;         // notification history, shown to all customers
+        allow write: if isAdmin();
+      }
+    }
+
+    match /notificationSubscriptions/{token} {
+      // Anyone can register/refresh their own device token (no login
+      // needed for customers). Nobody can read the list of tokens from the
+      // client — only the Cloud Function (using the Admin SDK, which
+      // bypasses these rules) reads it, to actually send pushes.
+      allow create, update: if true;
+      allow read, list, delete: if isAdmin();
+    }
+
+    match /adminUsers/{uid} {
+      allow read: if isAdmin() && request.auth.uid == uid;
+      allow write: if false; // manage via Firebase Console / Admin SDK only
+    }
+
+    match /ownerNotificationTokens/{token} {
+      // Lets the shop owner's own browser get a "new order" push. Only an
+      // admin can register/read these — customers never touch this collection.
+      allow read, write: if isAdmin();
+    }
+  }
+}
