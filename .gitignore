@@ -1,0 +1,20 @@
+# Firebase local files
+.firebase/
+.firebaserc
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Never commit a service account key
+*serviceAccountKey*.json
+*-firebase-adminsdk-*.json
+
+# Node (Cloud Functions)
+functions/node_modules/
+functions/.env
+functions/.env.*
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.log
