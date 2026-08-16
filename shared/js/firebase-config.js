@@ -1,13 +1,12 @@
 // shared/js/firebase-config.js
 //
-// PASTE YOUR OWN FIREBASE PROJECT CONFIG HERE.
 // You get these values from: Firebase Console → Project Settings → General
 // → "Your apps" → Web app → SDK setup and configuration.
 //
 // These values are NOT secret in the way a password is - they only tell
 // the browser which Firebase project to talk to. Real protection comes
-// from firebase/firestore.rules and firebase/storage.rules, not from
-// hiding this file. It is safe to commit this file to GitHub.
+// from firebase/firestore.rules, not from hiding this file. It is safe
+// to commit this file to GitHub.
 // Never commit a service-account JSON file - that one IS secret.
 
 export const firebaseConfig = {
@@ -28,3 +27,10 @@ export const VAPID_KEY = "BNo2q79bPTVZviQ6e1WLMvqLZthdaEMx7UTdgpZI9lYSkpoyApaWsi
 // from the same Firebase project, give each shop a different ID here and
 // in Firestore under shops/{shopId}. For a single shop, "main" is fine.
 export const SHOP_ID = "main";
+
+// Product photo hosting (Cloudinary free tier — no billing card needed).
+// Firebase Storage now requires the paid Blaze plan for every project
+// (as of Feb 2026), so product images are uploaded to Cloudinary instead
+// and only the resulting URL string is saved on the Firestore product doc.
+export const CLOUDINARY_CLOUD_NAME = "retmgtrx";
+export const CLOUDINARY_UPLOAD_PRESET = "n5rl1by4";
