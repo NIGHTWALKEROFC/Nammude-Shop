@@ -6,6 +6,20 @@ rules_version = '2';
 // Splitting these two is what lets a customer read their own order using
 // its unguessable order code, while still blocking anyone from browsing
 // (listing) every order in the shop.
+//
+// KNOWN LIMITATION (documented on purpose, not fixed here):
+// Rules validate the ORDER document and, below, cross-check each item's
+// price against the live product doc — but rules cannot force the
+// accompanying stock-decrement writes in the app's transaction to actually
+// happen; a request crafted to call the Firestore API directly (bypassing
+// app.js) could create a valid-looking order without ever decrementing
+// stock. Fully closing that gap needs a trusted server (a Cloud Function),
+// which requires Firebase's paid Blaze plan. Given the "no billing card"
+// constraint, the mitigations below (live price cross-check, size caps,
+// isOpen check) meaningfully shrink the abuse surface — a forged order can
+// no longer under-price items or bypass the closed-shop toggle — while the
+// worst remaining case is a spurious order with no real stock impact,
+// which the shop owner can simply cancel from the admin dashboard.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -31,20 +45,38 @@ service cloud.firestore {
     function isValidNewOrder(shopId) {
       let d = request.resource.data;
       return d.status == 'New' &&
-             d.shopId is string &&
-             d.customerName is string && d.customerName.size() > 0 &&
-             d.phone is string && d.phone.size() > 0 &&
-             d.items is list && d.items.size() > 0 &&
+             d.shopId is string && d.shopId == shopId &&
+             d.customerName is string && d.customerName.size() > 0 && d.customerName.size() <= 200 &&
+             d.phone is string && d.phone.size() > 0 && d.phone.size() <= 30 &&
+             (!('address' in d) || (d.address is string && d.address.size() <= 500)) &&
+             (!('note' in d) || (d.note is string && d.note.size() <= 500)) &&
+             d.items is list && d.items.size() > 0 && d.items.size() <= 50 &&
+             d.items.all(i,
+               i.productId is string &&
+               i.qty is int && i.qty > 0 && i.qty <= 999 &&
+               i.price is number && i.price >= 0 &&
+               // The price on each order item must match the product's
+               // CURRENT live price. This is the one cross-document check
+               // rules can do without a server, and it stops a forged
+               // request from checking out at a fake (lower) price.
+               i.price == get(/databases/$(database)/documents/shops/$(shopId)/products/$(i.productId)).data.price
+             ) &&
              d.total is number && d.total >= 0 &&
              // Server-side enforcement of the shop's open/closed toggle —
              // mirrors the client-side check in checkout, but this is the
              // one that actually can't be bypassed from devtools.
              get(/databases/$(database)/documents/shops/$(shopId)).data.isOpen != false;
-      // Item-level price/stock correctness is enforced by
-      // isValidStockDecrement() running on each product document inside the
-      // same transaction — the app always copies items[].price straight
-      // from the product doc it just read in that transaction, so the two
-      // writes can't disagree with each other.
+    }
+
+    function isValidSubscription() {
+      let d = request.resource.data;
+      // Anyone can write here (no login for customers), so the shape is
+      // validated tightly instead of trusting the caller: fixed field set,
+      // bounded string lengths, and lang locked to the two supported values.
+      return d.keys().hasOnly(['shopId', 'lang', 'platform', 'updatedAt']) &&
+             d.shopId is string && d.shopId.size() > 0 && d.shopId.size() <= 100 &&
+             d.lang in ['en', 'ml'] &&
+             d.platform is string && d.platform.size() <= 100;
     }
 
     match /shops/{shopId} {
@@ -84,9 +116,10 @@ service cloud.firestore {
     match /notificationSubscriptions/{token} {
       // Anyone can register/refresh their own device token (no login
       // needed for customers). Nobody can read the list of tokens from the
-      // client — only the Cloud Function (using the Admin SDK, which
-      // bypasses these rules) reads it, to actually send pushes.
-      allow create, update: if true;
+      // client — only a trusted server context (the Admin SDK, used by the
+      // free push-relay script in /scripts/send-push, which bypasses these
+      // rules) reads it, to actually send pushes.
+      allow create, update: if isValidSubscription();
       allow read, list, delete: if isAdmin();
     }
 
