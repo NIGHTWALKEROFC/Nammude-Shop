@@ -1,0 +1,31 @@
+name: Send Push Notifications
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay this slightly under load — that's
+    # fine for shop notifications; see scripts/send-push/README.md.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {} # lets you trigger it manually from the Actions tab
+
+jobs:
+  send-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: scripts/send-push
+        run: npm install --omit=dev
+
+      - name: Send pending push notifications
+        working-directory: scripts/send-push
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SHOP_ID: ${{ secrets.SHOP_ID }}
+        run: node index.js
