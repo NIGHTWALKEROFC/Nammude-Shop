@@ -42,6 +42,14 @@ input, select, textarea { font-family: inherit; }
 .sidenav { width: 210px; background: #fff; border-right: 1px solid var(--color-border); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
 .side-btn { text-align: left; background: none; border: none; padding: 12px 14px; border-radius: var(--radius-sm); font-weight: 700; font-size: 14px; color: var(--color-text-muted); }
 .side-btn.active { background: #EAF3EE; color: var(--color-primary); }
+.side-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: var(--color-danger);
+  margin-left: 4px;
+  vertical-align: middle;
+}
 .content { flex: 1; padding: 24px; overflow-x: auto; }
 
 @media (max-width: 720px) {
