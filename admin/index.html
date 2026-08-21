@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shop Admin</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" href="./css/style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Noto+Sans+Malayalam:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <section id="screen-login" class="screen screen--center">
+    <form id="login-form" class="onboard-card">
+      <h1>Shop Admin</h1>
+      <p class="muted">Sign in to manage your shop.</p>
+      <label>Email</label>
+      <input type="email" id="login-email" required autocomplete="username" />
+      <label>Password</label>
+      <input type="password" id="login-password" required autocomplete="current-password" />
+      <button type="submit" class="btn btn-primary">Log In</button>
+      <button type="button" id="btn-forgot" class="btn btn-text">Forgot password?</button>
+      <p id="login-error" class="error-text hidden"></p>
+    </form>
+  </section>
+
+  <!-- ADMIN APP -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="topbar-title">
+        <span id="crumb">Dashboard</span>
+      </div>
+      <button id="btn-logout" class="icon-btn">Log Out</button>
+    </header>
+
+    <div class="layout">
+      <nav class="sidenav">
+        <button class="side-btn active" data-view="dashboard">📊 Dashboard</button>
+        <button class="side-btn" data-view="products">🛍️ Products</button>
+        <button class="side-btn" data-view="categories">🗂️ Categories</button>
+        <button class="side-btn" data-view="orders">🧾 Orders <span id="admin-orders-dot" class="side-dot hidden"></span></button>
+        <button class="side-btn" data-view="announcements">📢 Announcements</button>
+        <button class="side-btn" data-view="settings">⚙️ Shop Settings</button>
+      </nav>
+
+      <main class="content">
+
+        <!-- DASHBOARD -->
+        <section id="view-dashboard" class="view">
+          <button id="btn-enable-order-alerts" class="btn btn-primary btn-inline" style="margin-bottom:16px">🔔 Enable New Order Alerts on This Device</button>
+          <div class="stat-grid">
+            <div class="stat-card"><span id="stat-new">0</span><label>New Orders</label></div>
+            <div class="stat-card"><span id="stat-today">0</span><label>Today's Orders</label></div>
+            <div class="stat-card"><span id="stat-products">0</span><label>Products</label></div>
+            <div class="stat-card"><span id="stat-low">0</span><label>Low Stock</label></div>
+            <div class="stat-card"><span id="stat-out">0</span><label>Out of Stock</label></div>
+          </div>
+          <h3>Recent Orders</h3>
+          <div id="dashboard-recent-orders"></div>
+        </section>
+
+        <!-- PRODUCTS -->
+        <section id="view-products" class="view hidden">
+          <div class="view-header">
+            <h2>Products</h2>
+            <button id="btn-new-product" class="btn btn-primary btn-inline">+ Add Product</button>
+          </div>
+          <table class="data-table" id="products-table">
+            <thead><tr><th></th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <!-- CATEGORIES -->
+        <section id="view-categories" class="view hidden">
+          <div class="view-header">
+            <h2>Categories</h2>
+            <button id="btn-new-category" class="btn btn-primary btn-inline">+ Add Category</button>
+          </div>
+          <table class="data-table" id="categories-table">
+            <thead><tr><th>Name (EN)</th><th>Name (ML)</th><th>Order</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <!-- ORDERS -->
+        <section id="view-orders" class="view hidden">
+          <div class="view-header">
+            <h2>Orders</h2>
+            <select id="order-status-filter">
+              <option value="all">All Statuses</option>
+              <option value="New">New</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Preparing">Preparing</option>
+              <option value="Ready">Ready</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div id="orders-list"></div>
+        </section>
+
+        <!-- ANNOUNCEMENTS -->
+        <section id="view-announcements" class="view hidden">
+          <div class="view-header">
+            <h2>Announcements</h2>
+            <button id="btn-new-announcement" class="btn btn-primary btn-inline">+ New Announcement</button>
+          </div>
+          <div id="announcements-list"></div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="view-settings" class="view hidden">
+          <h2>Shop Settings</h2>
+          <form id="settings-form" class="form-grid">
+            <label>Shop Name</label>
+            <input name="name" required />
+            <label>Logo URL</label>
+            <input name="logoUrl" placeholder="https://…" />
+            <label>Shop Open?</label>
+            <select name="isOpen"><option value="true">Open</option><option value="false">Closed</option></select>
+            <label>Phone Number</label>
+            <input name="phone" placeholder="+91XXXXXXXXXX" />
+            <label>WhatsApp Number</label>
+            <input name="whatsapp" placeholder="91XXXXXXXXXX (no + or spaces)" />
+            <label>Require Delivery Address?</label>
+            <select name="requireAddress"><option value="true">Yes</option><option value="false">No, pickup only</option></select>
+            <label>Low Stock Threshold</label>
+            <input name="lowStockThreshold" type="number" min="0" value="5" />
+            <label>Order Code Prefix</label>
+            <input name="orderPrefix" placeholder="SHOP" maxlength="8" />
+            <button type="submit" class="btn btn-primary btn-inline">Save Settings</button>
+          </form>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- PRODUCT FORM MODAL -->
+  <div id="modal-product-form" class="modal hidden">
+    <div class="modal-sheet">
+      <button class="modal-close" data-close="modal-product-form">✕</button>
+      <h2 id="product-form-title">Add Product</h2>
+      <form id="product-form" class="form-grid">
+        <input type="hidden" name="id" />
+        <label>Name (English)</label>
+        <input name="name_en" required />
+        <label>Name (Malayalam)</label>
+        <input name="name_ml" />
+        <label>Description (English)</label>
+        <textarea name="description_en" rows="2"></textarea>
+        <label>Description (Malayalam)</label>
+        <textarea name="description_ml" rows="2"></textarea>
+        <label>Category</label>
+        <select name="categoryId" id="product-category-select"></select>
+        <label>Price (₹)</label>
+        <input name="price" type="number" min="0" step="0.01" required />
+        <label>Stock Quantity</label>
+        <input name="stock" type="number" min="0" required />
+        <label>Photo</label>
+        <input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp" />
+        <img id="product-image-preview" class="image-preview hidden" />
+        <label>Available to customers?</label>
+        <select name="active"><option value="true">Available</option><option value="false">Hidden</option></select>
+        <div class="notify-row">
+          <label><input type="checkbox" id="product-notify" /> Notify customers about this change</label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-inline">Save Product</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CATEGORY FORM MODAL -->
+  <div id="modal-category-form" class="modal hidden">
+    <div class="modal-sheet">
+      <button class="modal-close" data-close="modal-category-form">✕</button>
+      <h2>Category</h2>
+      <form id="category-form" class="form-grid">
+        <input type="hidden" name="id" />
+        <label>Name (English)</label>
+        <input name="name_en" required />
+        <label>Name (Malayalam)</label>
+        <input name="name_ml" />
+        <label>Display Order</label>
+        <input name="order" type="number" value="0" />
+        <button type="submit" class="btn btn-primary btn-inline">Save Category</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ORDER DETAIL MODAL -->
+  <div id="modal-order-detail" class="modal hidden">
+    <div class="modal-sheet">
+      <button class="modal-close" data-close="modal-order-detail">✕</button>
+      <div id="order-detail-body"></div>
+    </div>
+  </div>
+
+  <!-- ANNOUNCEMENT FORM MODAL -->
+  <div id="modal-announcement-form" class="modal hidden">
+    <div class="modal-sheet">
+      <button class="modal-close" data-close="modal-announcement-form">✕</button>
+      <h2>New Announcement</h2>
+      <form id="announcement-form" class="form-grid">
+        <label>Type</label>
+        <select name="type">
+          <option value="general">General Announcement</option>
+          <option value="new_product">New Product</option>
+          <option value="price_update">Price Update</option>
+          <option value="back_in_stock">Back in Stock</option>
+        </select>
+        <label>Title (English)</label>
+        <input name="title_en" required />
+        <label>Title (Malayalam)</label>
+        <input name="title_ml" />
+        <label>Message (English)</label>
+        <textarea name="body_en" rows="3" required></textarea>
+        <label>Message (Malayalam)</label>
+        <textarea name="body_ml" rows="3"></textarea>
+        <label>Send Push Notification?</label>
+        <select name="sendNotification"><option value="true">Yes</option><option value="false">No, just show in history</option></select>
+        <button type="submit" class="btn btn-primary btn-inline">Send</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
