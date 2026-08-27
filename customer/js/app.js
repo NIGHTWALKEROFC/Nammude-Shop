@@ -50,6 +50,24 @@ function toast(msg) {
 // =================================================================
 function initLanguageStep() {
   const saved = localStorage.getItem("shop_lang");
+  if (saved) {
+    // Returning visitor: skip straight past onboarding into the app.
+    applyTranslations();
+    goToApp();
+    return;
+  }
+
+  // BUG FIX: setLang() used to only fire from inside a language button's
+  // own click handler. If someone left the pre-selected default (English)
+  // and just tapped Continue without tapping a language button first,
+  // shop_lang was NEVER written to storage — so onboarding (language, add
+  // to home screen, enable notifications) reappeared every single time the
+  // app was reopened, forever. Saving the default the instant this screen
+  // is shown closes that gap; tapping either button still overrides it.
+  setLang("en");
+  $(`.lang-btn[data-lang="en"]`).classList.add("selected");
+  applyTranslations();
+
   $$(".lang-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       $$(".lang-btn").forEach((b) => b.classList.remove("selected"));
@@ -58,17 +76,6 @@ function initLanguageStep() {
       applyTranslations();
     });
   });
-
-  if (saved) {
-    // Returning visitor: skip straight past onboarding into the app.
-    applyTranslations();
-    goToApp();
-    return;
-  }
-
-  // Default to English selected.
-  $(`.lang-btn[data-lang="en"]`).classList.add("selected");
-  applyTranslations();
 
   $("#btn-lang-continue").addEventListener("click", () => {
     hide($("#screen-language"));
