@@ -34,3 +34,27 @@ export const SHOP_ID = "main";
 // and only the resulting URL string is saved on the Firestore product doc.
 export const CLOUDINARY_CLOUD_NAME = "retmgtrx";
 export const CLOUDINARY_UPLOAD_PRESET = "n5rl1by4";
+
+// ---------------------------------------------------------------
+// PUSH NOTIFICATION RELAY (new)
+// ---------------------------------------------------------------
+// Actually delivering a push to a phone requires a trusted server holding
+// Firebase Admin credentials — a browser can never safely hold that key.
+// Instead of Firebase Cloud Functions (needs the paid Blaze plan) or a
+// GitHub Actions timer (free, but delayed and needs GitHub secrets), this
+// project uses a tiny Cloudflare Worker as that server — genuinely free,
+// no credit card, and called INSTANTLY the moment an order/announcement
+// is created. See /server/push-relay/README.md for full setup steps.
+//
+// After you deploy the Worker (steps in that README), paste its URL here.
+// Until you do, the site still works completely normally — orders,
+// checkout, the in-app Notifications tab, everything — it just won't
+// trigger a phone popup, the exact same as if this were left unset.
+export const PUSH_RELAY_URL = "https://nammude-shop-push-relay.YOUR-SUBDOMAIN.workers.dev";
+
+// A shared "password" so random strangers can't spam your relay endpoint
+// with fake requests. It is visible in this public file (same as the
+// Firebase config above) so it is NOT a strong security boundary — it
+// only blocks casual/accidental abuse. Make up any random string and set
+// the exact same string as a Worker secret named RELAY_KEY (see README).
+export const PUSH_RELAY_KEY = "change-this-to-your-own-random-string";
