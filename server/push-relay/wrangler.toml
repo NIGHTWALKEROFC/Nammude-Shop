@@ -1,0 +1,11 @@
+name = "nammude-shop-push-relay"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# This file has NO secrets in it on purpose — secrets are set separately
+# with `wrangler secret put`, never committed to Git. See README.md.
+#
+# Required secrets:
+#   FIREBASE_SERVICE_ACCOUNT   the full service account JSON, as one line
+#   RELAY_KEY                  any random string you make up — must match
+#                               PUSH_RELAY_KEY in shared/js/firebase-config.js
