@@ -44,3 +44,27 @@ export function saveCart(cart) {
 export function clearCart() {
   localStorage.removeItem(CART_KEY);
 }
+
+// ---------------------------------------------------------------
+// PUSH RELAY (new) — fires the Cloudflare Worker so a just-created order
+// or announcement is delivered as a real phone notification immediately.
+// Used by both customer/js/app.js (after placing an order) and
+// admin/js/app.js (after sending an announcement, and once on login to
+// "catch up" on anything that failed to send earlier).
+//
+// This NEVER throws and never blocks the caller — push delivery is a
+// nice-to-have. The in-app Notifications/Orders tabs and the order itself
+// are already saved in Firestore regardless of whether this succeeds.
+// ---------------------------------------------------------------
+export async function triggerPushRelay(relayUrl, relayKey, type, shopId, id) {
+  if (!relayUrl || relayUrl.includes("YOUR-SUBDOMAIN")) return; // relay not deployed yet — silently skip
+  try {
+    await fetch(relayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Relay-Key": relayKey },
+      body: JSON.stringify({ type, shopId, id }),
+    });
+  } catch (err) {
+    console.warn("Push relay call failed (still saved in Firestore, just not pushed to phones):", err.message);
+  }
+}
