@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, addDoc, updateDoc, deleteDoc, collection,
-  onSnapshot, query, orderBy, serverTimestamp, writeBatch,
+  onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   getMessaging, getToken, isSupported as messagingIsSupported,
@@ -702,11 +702,6 @@ $("#announcement-form").addEventListener("submit", async (e) => {
 // directly (works even if push delivery is skipped or fails), AND fires
 // the push relay Worker instantly so subscribed devices get a real phone
 // notification right away.
-//
-// BUG FIX: this used to do `await addDoc(...)` without capturing the
-// returned reference, so there was no way to get the new doc's ID to
-// actually trigger a push for it — the relay could never have been called
-// for a freshly created announcement even after it was added.
 async function createAnnouncementAndNotify({ type, title_en, title_ml, body_en, body_ml, productId, sendNotification }) {
   const ref = await addDoc(collection(db, "shops", SHOP_ID, "notifications"), {
     type, title_en, title_ml, body_en, body_ml,
@@ -737,6 +732,31 @@ function notifyBodyFor(type, lang, data, oldPrice) {
   if (type === "back_in_stock") return lang === "ml" ? `${name} വീണ്ടും ലഭ്യമാണ്.` : `${name} is available again.`;
   return name || "";
 }
+
+// =================================================================
+// CLEAR ALL — permanently wipes an entire subcollection. Deletes in
+// batches of 400 (Firestore's limit per batch is 500) so this works even
+// with hundreds of old orders/announcements.
+// =================================================================
+async function clearCollection(subpath, confirmMsg) {
+  if (!confirm(confirmMsg)) return;
+  const snap = await getDocs(collection(db, "shops", SHOP_ID, subpath));
+  const docs = snap.docs;
+  const CHUNK = 400;
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    docs.slice(i, i + CHUNK).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+  toast(`Cleared ${docs.length} item(s).`);
+}
+
+$("#btn-clear-orders").addEventListener("click", () =>
+  clearCollection("orders", "Delete ALL orders permanently? This cannot be undone.")
+);
+$("#btn-clear-announcements").addEventListener("click", () =>
+  clearCollection("notifications", "Delete ALL announcements permanently? Customers will no longer see them in their Notifications tab. This cannot be undone.")
+);
 
 // =================================================================
 function escapeHtml(str = "") {
