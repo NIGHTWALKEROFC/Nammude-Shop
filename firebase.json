@@ -5,7 +5,7 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
-      "functions/**",
+      "server/**",
       "README.md",
       ".gitignore"
     ],
@@ -22,15 +22,15 @@
       {
         "source": "/customer/firebase-messaging-sw.js",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "source": "/admin/firebase-messaging-sw.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       }
     ]
   },
   "firestore": {
     "rules": "firebase/firestore.rules",
     "indexes": "firebase/firestore.indexes.json"
-  },
-  "functions": {
-    "source": "functions",
-    "codebase": "default"
   }
 }
