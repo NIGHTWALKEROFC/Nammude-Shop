@@ -14,8 +14,9 @@ import {
 
 import {
   firebaseConfig, VAPID_KEY, SHOP_ID, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET,
+  PUSH_RELAY_URL, PUSH_RELAY_KEY,
 } from "../../shared/js/firebase-config.js";
-import { formatCurrency } from "../../shared/js/utils.js";
+import { formatCurrency, triggerPushRelay } from "../../shared/js/utils.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -103,6 +104,11 @@ function bootAdminData() {
   listenProducts();
   listenOrders();
   listenAnnouncements();
+  // Catch up on anything that failed to push-notify since the last admin
+  // login (e.g. the relay Worker was briefly unreachable). One-off check
+  // on login, NOT a scheduled/polling job — this is what replaced the old
+  // GitHub Actions cron.
+  triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "catchup", SHOP_ID, null);
 }
 
 // =================================================================
@@ -353,7 +359,7 @@ $("#product-form").addEventListener("submit", async (e) => {
     }
 
     // Owner-controlled notifications: only sent when explicitly requested,
-    // never automatically for routine edits (per spec §19).
+    // never automatically for routine edits.
     if ($("#product-notify").checked) {
       let type = "general";
       if (!existing) type = "new_product";
@@ -428,8 +434,10 @@ $("#product-form [name='imageFile']").addEventListener("change", (e) => {
 });
 
 // =================================================================
-// OWNER "NEW ORDER" PUSH ALERTS (optional, requires the Cloud Function
-// in /functions to actually deliver — see README)
+// OWNER "NEW ORDER" PUSH ALERTS — this registers the device to RECEIVE
+// alerts. Actually SENDING each alert happens instantly via the push
+// relay Worker the moment a customer places an order (see
+// customer/js/app.js's checkout handler, and /server/push-relay).
 // =================================================================
 $("#btn-enable-order-alerts").addEventListener("click", async () => {
   try {
@@ -691,19 +699,26 @@ $("#announcement-form").addEventListener("submit", async (e) => {
 });
 
 // Writes one record that the customer app's Notifications tab reads
-// directly (works even if push delivery is skipped or fails — see README
-// for why actual push delivery needs a small Cloud Function).
+// directly (works even if push delivery is skipped or fails), AND fires
+// the push relay Worker instantly so subscribed devices get a real phone
+// notification right away.
+//
+// BUG FIX: this used to do `await addDoc(...)` without capturing the
+// returned reference, so there was no way to get the new doc's ID to
+// actually trigger a push for it — the relay could never have been called
+// for a freshly created announcement even after it was added.
 async function createAnnouncementAndNotify({ type, title_en, title_ml, body_en, body_ml, productId, sendNotification }) {
-  await addDoc(collection(db, "shops", SHOP_ID, "notifications"), {
+  const ref = await addDoc(collection(db, "shops", SHOP_ID, "notifications"), {
     type, title_en, title_ml, body_en, body_ml,
     productId: productId || null,
     sendPush: !!sendNotification,
-    pushSent: false, // flipped to true by the free push-relay script once it actually delivers — see /scripts/send-push
+    pushSent: false, // flipped to true by the push relay once it actually delivers — see /server/push-relay
     createdAt: serverTimestamp(),
   });
-  // Actual push delivery to subscribed devices is handled by the free
-  // GitHub Actions relay in /scripts/send-push (no Firebase billing plan
-  // needed — see /scripts/send-push/README.md for one-time setup).
+
+  if (sendNotification) {
+    triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "notification", SHOP_ID, ref.id);
+  }
 }
 
 function notifyTitleFor(type, lang, data) {
