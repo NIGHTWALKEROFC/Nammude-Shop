@@ -12,9 +12,9 @@ import {
   getMessaging, getToken, onMessage, isSupported as messagingIsSupported,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
-import { firebaseConfig, VAPID_KEY, SHOP_ID } from "../../shared/js/firebase-config.js";
+import { firebaseConfig, VAPID_KEY, SHOP_ID, PUSH_RELAY_URL, PUSH_RELAY_KEY } from "../../shared/js/firebase-config.js";
 import { t, getLang, setLang, applyTranslations } from "../../shared/js/i18n.js";
-import { generateOrderCode, formatCurrency, debounce, getCart, saveCart, clearCart } from "../../shared/js/utils.js";
+import { generateOrderCode, formatCurrency, debounce, getCart, saveCart, clearCart, triggerPushRelay } from "../../shared/js/utils.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -224,6 +224,10 @@ function goToApp() {
   loadProducts();
   loadNotifications();
   renderCart();
+  // "Catch up" on anything that failed to push-notify earlier (e.g. the
+  // relay Worker was briefly unreachable when an announcement was made).
+  // This is a one-off check on app open, NOT a scheduled/polling job.
+  triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "catchup", SHOP_ID, null);
 }
 
 // =================================================================
@@ -239,6 +243,7 @@ async function loadShop() {
     const open = shopData.isOpen !== false;
     pill.textContent = open ? t("open") : t("closed");
     pill.classList.toggle("closed", !open);
+    renderCart(); // keep the cart's "shop closed" banner / address field in sync live
   });
 }
 
@@ -284,6 +289,7 @@ function loadProducts() {
       .map((d) => ({ id: d.id, ...d.data() }))
       .filter((p) => p.active !== false);
     renderProducts();
+    renderCart(); // product prices/stock may have changed under an open cart
   });
 }
 
@@ -320,13 +326,15 @@ function renderProducts() {
     const card = document.createElement("div");
     card.className = "product-card";
     card.innerHTML = `
-      <img src="${p.imageUrl || ""}" alt="" loading="lazy" />
+      <div class="product-card-media">
+        <img src="${p.imageUrl || ""}" alt="" loading="lazy" />
+        ${outOfStock ? `<span class="product-card-stock-badge">${t("outOfStock")}</span>` : ""}
+        <button class="product-add-btn${outOfStock ? " is-disabled" : ""}" ${outOfStock ? "disabled" : ""}>${outOfStock ? "—" : t("addShort")}</button>
+      </div>
       <div class="product-card-body">
         <div class="product-card-name">${escapeHtml(name)}</div>
         <div class="product-card-price">${formatCurrency(p.price)}</div>
-        ${outOfStock ? `<div class="product-card-stock">${t("outOfStock")}</div>` : ""}
         ${lowStock ? `<div class="product-card-lowstock">${t("onlyLeft").replace("{n}", stock)}</div>` : ""}
-        <button class="product-add-btn" ${outOfStock ? "disabled" : ""}>${outOfStock ? t("outOfStock") : t("addToCart")}</button>
       </div>
     `;
     card.querySelector("img").addEventListener("click", () => openProductDetail(p));
@@ -343,12 +351,43 @@ function escapeHtml(str = "") {
 
 $("#search-input").addEventListener("input", debounce((e) => {
   searchTerm = e.target.value.trim();
+  $("#btn-search-clear").classList.toggle("hidden", searchTerm.length === 0);
   renderProducts();
 }, 200));
 
-$("#sort-select").addEventListener("change", (e) => {
-  sortMode = e.target.value;
+$("#btn-search-clear").addEventListener("click", () => {
+  $("#search-input").value = "";
+  searchTerm = "";
+  hide($("#btn-search-clear"));
   renderProducts();
+  $("#search-input").focus();
+});
+
+// =================================================================
+// SORT — bottom sheet (replaces the old plain <select>, which looked out
+// of place next to the rest of the app's styling).
+// =================================================================
+const SORT_LABEL_KEYS = {
+  default: "sortFeatured",
+  name: "sortNameAZ",
+  "price-asc": "sortPriceLow",
+  "price-desc": "sortPriceHigh",
+};
+
+function updateSortUI() {
+  $("#sort-current-label").textContent = t(SORT_LABEL_KEYS[sortMode]);
+  $$(".sort-option").forEach((btn) => btn.classList.toggle("active", btn.dataset.value === sortMode));
+}
+
+$("#btn-sort-open").addEventListener("click", () => openModal("modal-sort"));
+
+$$(".sort-option").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    sortMode = btn.dataset.value;
+    updateSortUI();
+    renderProducts();
+    closeModal("modal-sort");
+  });
 });
 
 $("#instock-only").addEventListener("change", (e) => {
@@ -389,8 +428,11 @@ function openProductDetail(p) {
   `;
 
   if (!outOfStock) {
+    // Guard against p.stock being undefined/non-numeric — Math.min(undefined, n)
+    // is NaN, which used to silently break the quantity stepper.
+    const maxQty = typeof p.stock === "number" ? p.stock : 999;
     $("#qty-minus").addEventListener("click", () => { qty = Math.max(1, qty - 1); $("#qty-value").textContent = qty; });
-    $("#qty-plus").addEventListener("click", () => { qty = Math.min(p.stock, qty + 1); $("#qty-value").textContent = qty; });
+    $("#qty-plus").addEventListener("click", () => { qty = Math.min(maxQty, qty + 1); $("#qty-value").textContent = qty; });
     $("#detail-add-btn").addEventListener("click", () => {
       addToCart(p.id, qty);
       toast(t("addToCart"));
@@ -437,6 +479,9 @@ function renderCart() {
     const qty = cart[id];
     subtotal += (p.price || 0) * qty;
     const name = lang === "ml" && p.name_ml ? p.name_ml : p.name_en;
+    // Guard against p.stock being undefined/non-numeric (see openProductDetail).
+    const maxQty = typeof p.stock === "number" ? p.stock : 999;
+    const atMax = qty >= maxQty;
     const row = document.createElement("div");
     row.className = "cart-item";
     row.innerHTML = `
@@ -448,11 +493,14 @@ function renderCart() {
       <div class="cart-item-controls">
         <button data-action="minus">−</button>
         <span>${qty}</span>
-        <button data-action="plus">+</button>
+        <button data-action="plus" ${atMax ? "disabled" : ""}>+</button>
       </div>
     `;
     row.querySelector('[data-action="minus"]').addEventListener("click", () => updateCartQty(id, qty - 1));
-    row.querySelector('[data-action="plus"]').addEventListener("click", () => updateCartQty(id, Math.min(p.stock, qty + 1)));
+    row.querySelector('[data-action="plus"]').addEventListener("click", () => {
+      if (qty >= maxQty) return;
+      updateCartQty(id, qty + 1);
+    });
     container.appendChild(row);
   });
 
@@ -461,15 +509,33 @@ function renderCart() {
   $("#checkout-form").classList.toggle("hidden", ids.length === 0);
   $("#cart-subtotal").textContent = formatCurrency(subtotal);
 
+  const shopClosed = shopData.isOpen === false;
+  $("#cart-closed-banner").classList.toggle("hidden", !shopClosed || ids.length === 0);
+  const submitBtn = $("#checkout-form button[type='submit']");
+  if (submitBtn) submitBtn.disabled = shopClosed;
+
   // Hide the delivery-address field entirely if the shop doesn't need it.
   const needsAddress = shopData.requireAddress !== false;
   const addrLabel = $("#label-address");
   const addrInput = document.querySelector('[name="address"]');
   addrLabel.classList.toggle("hidden", !needsAddress);
   addrInput.classList.toggle("hidden", !needsAddress);
+
+  // Floating "View Cart" bar — hidden while the cart modal itself is open
+  // (see openModal/closeModal below).
+  const floatingBar = $("#cart-floating-bar");
+  const cartModalOpen = !$("#modal-cart").classList.contains("hidden");
+  if (ids.length > 0 && !cartModalOpen) {
+    show(floatingBar);
+    $("#cart-floating-count").textContent = `${totalCount} ${t("items")}`;
+    $("#cart-floating-total").textContent = formatCurrency(subtotal);
+  } else {
+    hide(floatingBar);
+  }
 }
 
 $("#btn-cart-nav").addEventListener("click", () => openModal("modal-cart"));
+$("#btn-cart-floating").addEventListener("click", () => openModal("modal-cart"));
 
 // =================================================================
 // CHECKOUT — stock is re-verified inside a Firestore transaction, so a
@@ -550,7 +616,7 @@ $("#checkout-form").addEventListener("submit", async (e) => {
             total,
             status: "New",
             lang: getLang(),
-            ownerAlertSent: false, // used by the free push-relay script — see /scripts/send-push
+            ownerAlertSent: false, // flipped to true by the push relay once it delivers — see /server/push-relay
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
@@ -569,6 +635,9 @@ $("#checkout-form").addEventListener("submit", async (e) => {
     const mine = JSON.parse(localStorage.getItem("shop_my_orders") || "[]");
     mine.unshift(placedOrderCode);
     localStorage.setItem("shop_my_orders", JSON.stringify(mine.slice(0, 20)));
+
+    // Instantly (not on a timer) tell the push relay to alert the shop owner.
+    triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "order", SHOP_ID, placedOrderCode);
 
     clearCart();
     renderCart();
@@ -623,8 +692,9 @@ async function loadMyOrders() {
   }
 }
 
-$("#order-lookup-btn").addEventListener("click", async () => {
+async function lookupOrder() {
   const code = $("#order-lookup-input").value.trim();
+  if (!code) return;
   const order = await checkOrder(code);
   if (!order) { toast(t("errorGeneric")); return; }
   const mine = JSON.parse(localStorage.getItem("shop_my_orders") || "[]");
@@ -633,6 +703,13 @@ $("#order-lookup-btn").addEventListener("click", async () => {
     localStorage.setItem("shop_my_orders", JSON.stringify(mine.slice(0, 20)));
   }
   loadMyOrders();
+}
+
+$("#order-lookup-btn").addEventListener("click", lookupOrder);
+// Fix: pressing Enter in the order-lookup input did nothing before —
+// only clicking "Check" worked, which most people don't expect on mobile.
+$("#order-lookup-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); lookupOrder(); }
 });
 
 // =================================================================
@@ -754,15 +831,23 @@ $$(".nav-btn[data-view]").forEach((btn) => {
 // =================================================================
 // MODAL HELPERS
 // =================================================================
-function openModal(id) { show($(`#${id}`)); }
-function closeModal(id) { hide($(`#${id}`)); }
+function openModal(id) {
+  show($(`#${id}`));
+  if (id === "modal-cart") hide($("#cart-floating-bar")); // avoid the floating bar showing through behind the sheet
+  if (id === "modal-sort") updateSortUI();
+}
+function closeModal(id) {
+  hide($(`#${id}`));
+  if (id === "modal-cart") renderCart(); // brings the floating bar back if the cart still has items
+}
 $$("[data-close]").forEach((btn) => btn.addEventListener("click", () => closeModal(btn.dataset.close)));
-$$(".modal").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m) hide(m); }));
+$$(".modal").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m) closeModal(m.id); }));
 
 $("#btn-lang-switch").addEventListener("click", () => {
   setLang(getLang() === "en" ? "ml" : "en");
   applyTranslations();
   $("#btn-lang-switch").textContent = getLang().toUpperCase();
+  updateSortUI();
   renderCategoryNav();
   renderProducts();
   renderCart();
@@ -771,6 +856,7 @@ $("#btn-lang-switch").addEventListener("click", () => {
 // =================================================================
 // BOOT
 // =================================================================
+updateSortUI();
 ensureServiceWorker(); // register early so offline caching starts ASAP
 initLanguageStep();
 initAddHomeStep();
