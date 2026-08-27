@@ -6,7 +6,7 @@
 <title>Shop</title>
 <meta name="description" content="Order from your local shop online." />
 <link rel="manifest" href="./manifest.json" />
-<meta name="theme-color" content="#12543F" />
+<meta name="theme-color" content="#E9532C" />
 <link rel="icon" href="./icons/icon-192.png" />
 <link rel="apple-touch-icon" href="./icons/icon-192.png" />
 <link rel="stylesheet" href="./css/style.css" />
@@ -63,19 +63,24 @@
     </header>
 
     <div class="search-bar">
-      <input id="search-input" type="search" data-i18n-placeholder="search" placeholder="Search products…" />
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input id="search-input" type="search" data-i18n-placeholder="search" placeholder="Search products…" />
+        <button id="btn-search-clear" class="search-clear hidden" type="button" aria-label="Clear search">✕</button>
+      </div>
     </div>
 
     <div class="filter-bar">
-      <select id="sort-select">
-        <option value="default" data-i18n="sortFeatured">Sort: Featured</option>
-        <option value="name" data-i18n="sortNameAZ">Name: A–Z</option>
-        <option value="price-asc" data-i18n="sortPriceLow">Price: Low to High</option>
-        <option value="price-desc" data-i18n="sortPriceHigh">Price: High to Low</option>
-      </select>
+      <button id="btn-sort-open" class="filter-chip" type="button">
+        <span id="sort-current-label" data-i18n="sortFeatured">Sort: Featured</span>
+        <span class="filter-chip-caret">▾</span>
+      </button>
       <label class="instock-toggle">
-        <input type="checkbox" id="instock-only" />
         <span data-i18n="inStockOnly">In stock only</span>
+        <span class="switch">
+          <input type="checkbox" id="instock-only" />
+          <span class="switch-track"></span>
+        </span>
       </label>
     </div>
 
@@ -106,6 +111,15 @@
       <p id="notifications-empty" class="empty-state hidden" data-i18n="noNotifications"></p>
     </main>
 
+    <!-- Swiggy/Zomato-style floating "View Cart" bar — shown whenever the cart is non-empty -->
+    <div id="cart-floating-bar" class="cart-floating-bar hidden">
+      <div class="cart-floating-info">
+        <span id="cart-floating-count">0 items</span>
+        <span id="cart-floating-total">₹0</span>
+      </div>
+      <button id="btn-cart-floating" class="btn-view-cart" data-i18n="viewCart" type="button">View Cart</button>
+    </div>
+
     <nav class="bottom-nav">
       <button class="nav-btn active" data-view="home">
         <span>🏬</span><label data-i18n="home">Home</label>
@@ -134,6 +148,20 @@
     </div>
   </div>
 
+  <!-- SORT BOTTOM SHEET -->
+  <div id="modal-sort" class="modal hidden">
+    <div class="modal-sheet modal-sheet--sort">
+      <button class="modal-close" data-close="modal-sort">✕</button>
+      <h3 data-i18n="sortBy">Sort By</h3>
+      <div id="sort-options" class="sort-options">
+        <button class="sort-option" data-value="default" data-label-key="sortFeatured" data-i18n="sortFeatured">Sort: Featured</button>
+        <button class="sort-option" data-value="name" data-label-key="sortNameAZ" data-i18n="sortNameAZ">Name: A–Z</button>
+        <button class="sort-option" data-value="price-asc" data-label-key="sortPriceLow" data-i18n="sortPriceLow">Price: Low to High</button>
+        <button class="sort-option" data-value="price-desc" data-label-key="sortPriceHigh" data-i18n="sortPriceHigh">Price: High to Low</button>
+      </div>
+    </div>
+  </div>
+
   <!-- CART / CHECKOUT MODAL -->
   <div id="modal-cart" class="modal hidden">
     <div class="modal-sheet">
@@ -144,6 +172,8 @@
       <div id="cart-summary" class="cart-summary hidden">
         <div class="row"><span data-i18n="subtotal">Subtotal</span><strong id="cart-subtotal">₹0</strong></div>
       </div>
+
+      <p id="cart-closed-banner" class="cart-closed-banner hidden" data-i18n="shopClosedNotice"></p>
 
       <form id="checkout-form" class="checkout-form hidden">
         <label data-i18n="customerName">Your Name</label>
