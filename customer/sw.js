@@ -1,23 +1,29 @@
 // customer/sw.js
 //
-// IMPORTANT — this file now does TWO jobs on purpose:
-//   1. Offline app-shell caching (what it always did)
+// IMPORTANT — this file does TWO jobs on purpose:
+//   1. Offline app-shell caching
 //   2. Firebase Cloud Messaging background push (moved here from the old
 //      separate customer/firebase-messaging-sw.js)
 //
-// WHY THEY WERE MERGED:
+// WHY THEY'RE MERGED:
 // A service worker's "scope" is derived from the folder it lives in unless
 // you pass an explicit {scope} option. Both sw.js and firebase-messaging-sw.js
 // used to live in /customer/ with no explicit scope, so they were BOTH
 // registered at the same scope. In the Service Worker spec a scope maps to
 // ONE registration — registering a second script at that same scope updates
-// the existing registration to point at the new script. In practice this
-// meant whichever one was registered/updated LAST silently became the only
-// active worker, and the other one's job (offline caching, or push) stopped
-// happening — intermittently, depending on registration timing. This is why
-// push notifications worked sometimes but not reliably as a phone popup.
-// Having exactly one service worker file for the whole site removes the
-// conflict entirely.
+// the existing registration to point at the new script. Whichever one was
+// registered/updated LAST silently became the only active worker, and the
+// other one's job stopped happening intermittently. One service worker for
+// the whole site removes the conflict entirely.
+//
+// FIX IN THIS VERSION (real bug): the old fetch handler only ever served
+// what was in APP_SHELL — anything fetched later (shared/js modules, the
+// shop logo, product images) was fetched from the network every time and
+// NEVER cached, so returning users offline only ever got the 5 original
+// files, not a working app. The fetch handler below now also stores
+// same-origin responses into the cache the first time they're fetched
+// ("runtime caching"), so offline mode keeps working as you browse more
+// of the site.
 //
 // Keep the Firebase config values identical to shared/js/firebase-config.js.
 
@@ -65,15 +71,24 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 // ---------------------------------------------------------------
-// Offline app-shell caching (unchanged behaviour from before)
+// Offline app-shell caching
 // ---------------------------------------------------------------
-const CACHE_NAME = "shop-shell-v2";
+// Bumped v2 -> v3: the CSS/JS content changed in this update, and bumping
+// the cache name is what makes the "activate" cleanup below throw away the
+// old cached files instead of returning to visitors who already installed
+// the old version.
+const CACHE_NAME = "shop-shell-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./css/style.css",
   "./js/app.js",
   "./manifest.json",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "../shared/js/firebase-config.js",
+  "../shared/js/i18n.js",
+  "../shared/js/utils.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -93,10 +108,13 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Network-first for navigation requests (so updates show up quickly),
-  // cache-first for static shell assets (so it's fast and works offline).
   const { request } = event;
   if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+  // Never try to cache cross-origin calls (Firestore, Cloudinary, Google
+  // Fonts) — this is purely an app-shell cache, not a generic proxy.
+  if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
@@ -106,6 +124,17 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request))
+    caches.match(request).then((cached) => {
+      if (cached) return cached;
+      return fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => cached); // offline and never cached — nothing more we can do for this request
+    })
   );
 });
