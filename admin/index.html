@@ -103,15 +103,18 @@
         <section id="view-orders" class="view hidden">
           <div class="view-header">
             <h2>Orders</h2>
-            <select id="order-status-filter">
-              <option value="all">All Statuses</option>
-              <option value="New">New</option>
-              <option value="Confirmed">Confirmed</option>
-              <option value="Preparing">Preparing</option>
-              <option value="Ready">Ready</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
-            </select>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button id="btn-clear-orders" class="btn-sm btn-sm-danger">Clear All Orders</button>
+              <select id="order-status-filter">
+                <option value="all">All Statuses</option>
+                <option value="New">New</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Preparing">Preparing</option>
+                <option value="Ready">Ready</option>
+                <option value="Completed">Completed</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
           </div>
           <div id="orders-bulk-bar" class="bulk-bar hidden">
             <span id="orders-selected-count">0 selected</span>
@@ -133,7 +136,10 @@
         <section id="view-announcements" class="view hidden">
           <div class="view-header">
             <h2>Announcements</h2>
-            <button id="btn-new-announcement" class="btn btn-primary btn-inline">+ New Announcement</button>
+            <div style="display:flex;gap:8px">
+              <button id="btn-new-announcement" class="btn btn-primary btn-inline">+ New Announcement</button>
+              <button id="btn-clear-announcements" class="btn-sm btn-sm-danger">Clear All</button>
+            </div>
           </div>
           <div id="announcements-list"></div>
         </section>
