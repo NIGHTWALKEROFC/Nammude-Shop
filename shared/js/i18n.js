@@ -66,6 +66,11 @@ export const STRINGS = {
     inStockOnly: "In stock only",
     onlyLeft: "Only {n} left!",
     category: "Category",
+    sortBy: "Sort By",
+    addShort: "ADD",
+    viewCart: "View Cart",
+    items: "items",
+    shopClosedNotice: "This shop is currently closed — orders can't be placed right now.",
   },
   ml: {
     chooseLanguage: "ഭാഷ തിരഞ്ഞെടുക്കുക",
@@ -130,6 +135,11 @@ export const STRINGS = {
     inStockOnly: "സ്റ്റോക്കിൽ ഉള്ളവ മാത്രം",
     onlyLeft: "{n} എണ്ണം മാത്രം ബാക്കി!",
     category: "വിഭാഗം",
+    sortBy: "അടുക്കുക",
+    addShort: "ചേർക്കൂ",
+    viewCart: "കാർട്ട് കാണുക",
+    items: "ഇനങ്ങൾ",
+    shopClosedNotice: "ഈ ഷോപ്പ് ഇപ്പോൾ അടച്ചിരിക്കുന്നു — ഓർഡറുകൾ സ്വീകരിക്കുന്നില്ല.",
   },
 };
 
