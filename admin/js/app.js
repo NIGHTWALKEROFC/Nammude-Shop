@@ -96,7 +96,7 @@ function closeModal(id) { hide($(`#${id}`)); }
 $$("[data-close]").forEach((btn) => btn.addEventListener("click", () => closeModal(btn.dataset.close)));
 
 // =================================================================
-// BOOT — set up all real-time listeners once logged in
+// BOOT
 // =================================================================
 function bootAdminData() {
   listenShopSettings();
@@ -104,10 +104,6 @@ function bootAdminData() {
   listenProducts();
   listenOrders();
   listenAnnouncements();
-  // Catch up on anything that failed to push-notify since the last admin
-  // login (e.g. the relay Worker was briefly unreachable). One-off check
-  // on login, NOT a scheduled/polling job — this is what replaced the old
-  // GitHub Actions cron.
   triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "catchup", SHOP_ID, null);
 }
 
@@ -124,6 +120,8 @@ function listenShopSettings() {
     f.phone.value = shopSettings.phone || "";
     f.whatsapp.value = shopSettings.whatsapp || "";
     f.requireAddress.value = String(shopSettings.requireAddress !== false);
+    f.minOrderAmount.value = shopSettings.minOrderAmount ?? 0;
+    f.deliveryFee.value = shopSettings.deliveryFee ?? 0;
     f.lowStockThreshold.value = shopSettings.lowStockThreshold ?? 5;
     f.orderPrefix.value = shopSettings.orderPrefix || "SHOP";
     renderDashboard();
@@ -140,6 +138,8 @@ $("#settings-form").addEventListener("submit", async (e) => {
     phone: f.phone.value.trim(),
     whatsapp: f.whatsapp.value.trim(),
     requireAddress: f.requireAddress.value === "true",
+    minOrderAmount: Number(f.minOrderAmount.value) || 0,
+    deliveryFee: Number(f.deliveryFee.value) || 0,
     lowStockThreshold: Number(f.lowStockThreshold.value) || 5,
     orderPrefix: f.orderPrefix.value.trim() || "SHOP",
   }, { merge: true });
@@ -358,8 +358,6 @@ $("#product-form").addEventListener("submit", async (e) => {
       productId = docRef.id;
     }
 
-    // Owner-controlled notifications: only sent when explicitly requested,
-    // never automatically for routine edits.
     if ($("#product-notify").checked) {
       let type = "general";
       if (!existing) type = "new_product";
@@ -381,7 +379,9 @@ $("#product-form").addEventListener("submit", async (e) => {
     toast("Product saved.");
   } catch (err) {
     console.error(err);
-    toast("Could not save product.");
+    // Surface the specific "too large" message from uploadProductImage
+    // directly; fall back to a generic message for anything else.
+    toast(err.message && err.message.includes("too large") ? err.message : "Could not save product.");
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "Save Product";
@@ -390,30 +390,22 @@ $("#product-form").addEventListener("submit", async (e) => {
 
 async function deleteProduct(id) {
   if (!confirm("Delete this product? Past orders will keep showing the product name and price as they were.")) return;
-  // Historical orders store their own copy of name/price (see checkout code),
-  // so deleting the product here never changes old order records.
   await deleteDoc(doc(db, "shops", SHOP_ID, "products", id));
 }
 
-// Resize/compress before upload, then send to Cloudinary (free tier, no
-// billing card needed — Firebase Storage now requires the paid Blaze plan).
+// SIMPLIFIED: previously resized every image via a canvas before upload.
+// Removed — canvas resizing can be slow on very old/low-end phones, and
+// Cloudinary's free tier already handles reasonably-sized photos fine. Now
+// just rejects anything over 5MB with a clear message and uploads the
+// original file as-is.
 async function uploadProductImage(file) {
-  const MAX_DIM = 900;
-  const blob = await new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.82);
-    };
-    img.src = URL.createObjectURL(file);
-  });
+  const MAX_BYTES = 5 * 1024 * 1024;
+  if (file.size > MAX_BYTES) {
+    throw new Error("Image is too large (max 5MB). Please choose a smaller photo.");
+  }
 
   const formData = new FormData();
-  formData.append("file", blob);
+  formData.append("file", file);
   formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
 
   const res = await fetch(
@@ -422,7 +414,7 @@ async function uploadProductImage(file) {
   );
   if (!res.ok) throw new Error("Image upload failed");
   const data = await res.json();
-  return data.secure_url; // saved on the product doc, same as the old Storage URL was
+  return data.secure_url;
 }
 
 $("#product-form [name='imageFile']").addEventListener("change", (e) => {
@@ -434,10 +426,7 @@ $("#product-form [name='imageFile']").addEventListener("change", (e) => {
 });
 
 // =================================================================
-// OWNER "NEW ORDER" PUSH ALERTS — this registers the device to RECEIVE
-// alerts. Actually SENDING each alert happens instantly via the push
-// relay Worker the moment a customer places an order (see
-// customer/js/app.js's checkout handler, and /server/push-relay).
+// OWNER "NEW ORDER" PUSH ALERTS
 // =================================================================
 $("#btn-enable-order-alerts").addEventListener("click", async () => {
   try {
@@ -510,10 +499,6 @@ function renderDashboard() {
 // =================================================================
 // ORDERS
 // =================================================================
-// New-order indicator: a red dot on the "Orders" tab plus a toast + a short
-// beep the moment an order actually arrives. Runs entirely off this
-// existing listener, so it works immediately regardless of whether push
-// notifications are enabled/permitted on this device.
 let ordersFirstLoad = true;
 let latestOrderTs = 0;
 
@@ -556,8 +541,6 @@ function markOrdersSeen() {
   setOrdersBadge(false);
 }
 
-// Small two-tone beep so the shop owner notices a new order even with the
-// screen unlocked but the tab in the background. No audio file needed.
 function playNewOrderChime() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -574,7 +557,7 @@ function playNewOrderChime() {
       osc.stop(ctx.currentTime + i * 0.12 + 0.12);
     });
   } catch {
-    // Autoplay/audio restrictions on some browsers — the visual badge and toast still work.
+    // Autoplay/audio restrictions — the visual badge and toast still work.
   }
 }
 
@@ -626,11 +609,14 @@ $("#btn-bulk-status-apply").addEventListener("click", async () => {
   const n = selectedOrderIds.size;
   if (n === 0) return;
   const newStatus = $("#bulk-status-select").value;
+  const ids = [...selectedOrderIds];
   const batch = writeBatch(db);
-  selectedOrderIds.forEach((id) => {
+  ids.forEach((id) => {
     batch.update(doc(db, "shops", SHOP_ID, "orders", id), { status: newStatus, updatedAt: serverTimestamp() });
   });
   await batch.commit();
+  // Instantly push each affected customer that their order's status changed.
+  ids.forEach((id) => triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "order_status", SHOP_ID, id));
   toast(`${n} order(s) marked ${newStatus}.`);
   selectedOrderIds = new Set();
   renderOrdersList();
@@ -646,7 +632,11 @@ function openOrderDetail(o) {
     <p><strong>${escapeHtml(o.customerName || "")}</strong><br/>${escapeHtml(o.phone || "")}${o.address ? `<br/>${escapeHtml(o.address)}` : ""}</p>
     ${o.note ? `<p><em>Note: ${escapeHtml(o.note)}</em></p>` : ""}
     <div>${itemsHtml}</div>
-    <p><strong>Total: ${formatCurrency(o.total)}</strong></p>
+    <p>
+      Subtotal: ${formatCurrency(o.subtotal ?? o.total)}<br/>
+      ${o.deliveryFee ? `Delivery Fee: ${formatCurrency(o.deliveryFee)}<br/>` : ""}
+      <strong>Total: ${formatCurrency(o.total)}</strong>
+    </p>
     <label>Status</label>
     <select id="order-status-select" class="order-status-select">
       ${["New", "Confirmed", "Preparing", "Ready", "Completed", "Cancelled"]
@@ -655,10 +645,50 @@ function openOrderDetail(o) {
   `;
   $("#order-status-select").addEventListener("change", async (e) => {
     await updateDoc(doc(db, "shops", SHOP_ID, "orders", o.id), { status: e.target.value, updatedAt: serverTimestamp() });
+    // Instantly tell the relay to push this customer their new status.
+    triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "order_status", SHOP_ID, o.id);
     toast("Order status updated.");
   });
   openModal("modal-order-detail");
 }
+
+// =================================================================
+// CSV EXPORT — exports whatever is currently visible under the Orders
+// tab's status filter. Pure client-side, no server involved.
+// =================================================================
+function csvEscape(value) {
+  const s = String(value ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function exportOrdersCsv() {
+  const filter = $("#order-status-filter").value;
+  const visible = orders.filter((o) => filter === "all" || o.status === filter);
+  if (visible.length === 0) { toast("No orders to export."); return; }
+
+  const header = ["Order ID", "Date", "Customer Name", "Phone", "Address", "Status", "Items", "Subtotal", "Delivery Fee", "Total"];
+  const rows = visible.map((o) => {
+    const date = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString("en-IN") : "";
+    const itemsStr = (o.items || []).map((i) => `${i.name_en} x${i.qty}`).join("; ");
+    return [
+      o.id, date, o.customerName || "", o.phone || "", o.address || "", o.status,
+      itemsStr, o.subtotal ?? "", o.deliveryFee ?? "", o.total ?? "",
+    ].map(csvEscape).join(",");
+  });
+  const csv = [header.map(csvEscape).join(","), ...rows].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+$("#btn-export-orders").addEventListener("click", exportOrdersCsv);
 
 // =================================================================
 // ANNOUNCEMENTS
@@ -698,16 +728,12 @@ $("#announcement-form").addEventListener("submit", async (e) => {
   toast("Announcement sent.");
 });
 
-// Writes one record that the customer app's Notifications tab reads
-// directly (works even if push delivery is skipped or fails), AND fires
-// the push relay Worker instantly so subscribed devices get a real phone
-// notification right away.
 async function createAnnouncementAndNotify({ type, title_en, title_ml, body_en, body_ml, productId, sendNotification }) {
   const ref = await addDoc(collection(db, "shops", SHOP_ID, "notifications"), {
     type, title_en, title_ml, body_en, body_ml,
     productId: productId || null,
     sendPush: !!sendNotification,
-    pushSent: false, // flipped to true by the push relay once it actually delivers — see /server/push-relay
+    pushSent: false,
     createdAt: serverTimestamp(),
   });
 
@@ -734,9 +760,7 @@ function notifyBodyFor(type, lang, data, oldPrice) {
 }
 
 // =================================================================
-// CLEAR ALL — permanently wipes an entire subcollection. Deletes in
-// batches of 400 (Firestore's limit per batch is 500) so this works even
-// with hundreds of old orders/announcements.
+// CLEAR ALL
 // =================================================================
 async function clearCollection(subpath, confirmMsg) {
   if (!confirm(confirmMsg)) return;
