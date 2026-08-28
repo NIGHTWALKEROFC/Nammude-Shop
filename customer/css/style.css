@@ -72,6 +72,17 @@ input, textarea { font-family: inherit; }
   font-size: 12px;
   font-weight: 800;
 }
+.btn-sm-outline {
+  display: inline-block;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--color-primary);
+  margin-top: 8px;
+}
 
 /* ---------- Onboarding screens ---------- */
 .screen--center {
@@ -197,7 +208,7 @@ input, textarea { font-family: inherit; }
   white-space: nowrap;
 }
 
-/* Toggle switch (replaces the old bare checkbox) */
+/* Toggle switch */
 .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
 .switch-track {
@@ -263,13 +274,18 @@ input, textarea { font-family: inherit; }
 @media (hover: hover) {
   .product-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-float); }
 }
-.product-card-media { position: relative; border-radius: var(--radius-md) var(--radius-md) 0 0; overflow: hidden; }
+/* BUG FIX: this container used to have overflow:hidden (to round the
+   image's corners), which also clipped off the floating ADD button that
+   deliberately hangs partially below the image. Rounding the <img> itself
+   instead (below) fixes this — the button stays fully visible/tappable. */
+.product-card-media { position: relative; }
 .product-card-media img {
   width: 100%;
   aspect-ratio: 1/1;
   object-fit: cover;
   display: block;
   background: var(--color-border);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 .product-card-stock-badge {
   position: absolute;
@@ -323,7 +339,7 @@ input, textarea { font-family: inherit; }
 }
 .notif-permission-banner .btn { padding: 6px 14px; font-size: 13px; flex-shrink: 0; }
 
-/* ---------- Floating "View Cart" bar (Swiggy/Zomato signature UX) ---------- */
+/* ---------- Floating "View Cart" bar ---------- */
 .cart-floating-bar {
   position: fixed;
   left: 16px; right: 16px;
@@ -464,7 +480,8 @@ input, textarea { font-family: inherit; }
 }
 .cart-item-controls button:disabled { color: var(--color-text-muted); border-color: var(--color-border); opacity: 0.5; }
 .cart-summary { border-top: 1px solid var(--color-border); padding: 12px 0; }
-.cart-summary .row { display: flex; justify-content: space-between; font-size: 15px; font-weight: 700; }
+.cart-summary .row { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; padding: 3px 0; color: var(--color-text-muted); }
+.cart-summary .row-total { font-size: 16px; font-weight: 800; color: var(--color-text); border-top: 1px dashed var(--color-border); margin-top: 4px; padding-top: 8px; }
 
 .cart-closed-banner {
   background: #FDECEC;
