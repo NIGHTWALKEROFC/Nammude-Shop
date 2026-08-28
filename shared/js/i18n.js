@@ -71,6 +71,12 @@ export const STRINGS = {
     viewCart: "View Cart",
     items: "items",
     shopClosedNotice: "This shop is currently closed — orders can't be placed right now.",
+    deliveryFee: "Delivery Fee",
+    minOrderNotice: "Minimum order is {amount}. Add {more} more to continue.",
+    reorder: "Reorder",
+    reorderAdded: "Items added to your cart",
+    reorderPartial: "Added — some quantities were adjusted for current stock",
+    reorderUnavailable: "Sorry, none of these items are available anymore",
   },
   ml: {
     chooseLanguage: "ഭാഷ തിരഞ്ഞെടുക്കുക",
@@ -140,6 +146,12 @@ export const STRINGS = {
     viewCart: "കാർട്ട് കാണുക",
     items: "ഇനങ്ങൾ",
     shopClosedNotice: "ഈ ഷോപ്പ് ഇപ്പോൾ അടച്ചിരിക്കുന്നു — ഓർഡറുകൾ സ്വീകരിക്കുന്നില്ല.",
+    deliveryFee: "ഡെലിവറി ഫീസ്",
+    minOrderNotice: "കുറഞ്ഞ ഓർഡർ തുക {amount} ആണ്. തുടരാൻ {more} കൂടി ചേർക്കുക.",
+    reorder: "വീണ്ടും ഓർഡർ ചെയ്യുക",
+    reorderAdded: "ഇനങ്ങൾ കാർട്ടിൽ ചേർത്തു",
+    reorderPartial: "ചേർത്തു — സ്റ്റോക്ക് അനുസരിച്ച് ചില എണ്ണങ്ങൾ ക്രമീകരിച്ചു",
+    reorderUnavailable: "ക്ഷമിക്കണം, ഈ ഇനങ്ങളൊന്നും ഇപ്പോൾ ലഭ്യമല്ല",
   },
 };
 
