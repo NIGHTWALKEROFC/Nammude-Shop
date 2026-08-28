@@ -73,11 +73,11 @@ self.addEventListener("notificationclick", (event) => {
 // ---------------------------------------------------------------
 // Offline app-shell caching
 // ---------------------------------------------------------------
-// Bumped v2 -> v3: the CSS/JS content changed in this update, and bumping
-// the cache name is what makes the "activate" cleanup below throw away the
-// old cached files instead of returning to visitors who already installed
-// the old version.
-const CACHE_NAME = "shop-shell-v3";
+// Bumped v3 -> v4: customer/index.html and customer/css/style.css both
+// changed in this update (new cart summary rows, reorder button, overflow
+// fix). Without bumping this, anyone who already visited/installed the
+// app would keep being served the OLD cached versions of these files.
+const CACHE_NAME = "shop-shell-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
