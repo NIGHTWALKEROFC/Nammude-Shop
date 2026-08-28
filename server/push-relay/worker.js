@@ -1,30 +1,24 @@
 // server/push-relay/worker.js
 //
 // Cloudflare Worker — Free plan (no credit card needed), no GitHub
-// Actions, no Firebase Blaze billing plan. This is the one "server" piece
-// a push notification system can never fully avoid: sending a push to
-// someone else's phone requires a trusted server holding Firebase Admin
-// credentials — a browser can never safely hold that key.
+// Actions, no Firebase Blaze billing plan.
 //
 // WHAT IT DOES
 //   POST / with JSON body { type, shopId, id }
-//     type: "notification" -> delivers shops/{shopId}/notifications/{id}
-//                              to every subscribed customer device
-//     type: "order"         -> delivers a "🛒 New Order" alert for
-//                              shops/{shopId}/orders/{id} to every device
-//                              the shop owner enabled alerts on
-//     type: "catchup"       -> re-checks every notification/order for
-//                              this shop that is still unsent and (re)sends
-//                              them. Called once whenever the customer or
-//                              admin app opens (see triggerPushRelay() in
-//                              shared/js/utils.js), so a push that failed
-//                              to fire earlier still gets delivered next
-//                              time anyone opens the app — with no
-//                              scheduled polling anywhere.
-//
-// The app calls this the instant it writes the Firestore doc, so delivery
-// is immediate — not on a 5-minute timer like the old GitHub Actions
-// version, and with no billing card like the old Cloud Functions version.
+//     type: "notification"  -> delivers shops/{shopId}/notifications/{id}
+//                               to every subscribed customer device
+//     type: "order"          -> delivers a "New Order" alert for
+//                               shops/{shopId}/orders/{id} to every device
+//                               the shop owner enabled alerts on
+//     type: "order_status"   -> delivers a status-update push (e.g.
+//                               "Your order is ready!") to the ONE device
+//                               that placed shops/{shopId}/orders/{id},
+//                               using the token saved on that order at
+//                               checkout time
+//     type: "catchup"        -> re-checks every notification/order for
+//                               this shop that is still unsent and (re)sends
+//                               them. Called once whenever the customer or
+//                               admin app opens.
 //
 // SETUP: see server/push-relay/README.md.
 
@@ -40,9 +34,6 @@ export default {
     if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }));
     if (request.method !== "POST") return withCors(new Response("Method not allowed", { status: 405 }));
 
-    // Lightweight abuse guard — not a strong security boundary (this key
-    // is visible in the site's public JS, same as the Firebase config),
-    // but it stops casual/accidental spam of this endpoint.
     if (!env.RELAY_KEY || request.headers.get("X-Relay-Key") !== env.RELAY_KEY) {
       return withCors(new Response("Unauthorized", { status: 401 }));
     }
@@ -65,6 +56,7 @@ export default {
       let result;
       if (type === "notification") result = await handleNotification(projectId, accessToken, shopId, body.id);
       else if (type === "order") result = await handleOrder(projectId, accessToken, shopId, body.id);
+      else if (type === "order_status") result = await handleOrderStatus(projectId, accessToken, shopId, body.id);
       else if (type === "catchup") result = await handleCatchup(projectId, accessToken, shopId);
       else return withCors(new Response("Unknown type", { status: 400 }));
 
@@ -77,10 +69,9 @@ export default {
 };
 
 // ---------------------------------------------------------------
-// Google OAuth2 (service account -> access token), signed with the
-// Web Crypto API — zero npm dependencies, works natively in a Worker.
+// Google OAuth2 (service account -> access token)
 // ---------------------------------------------------------------
-let cachedToken = null; // reused across requests as long as this Worker instance stays warm
+let cachedToken = null;
 
 async function getAccessToken(serviceAccount) {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60000) return cachedToken.token;
@@ -139,10 +130,7 @@ function pemToArrayBuffer(pem) {
 }
 
 // ---------------------------------------------------------------
-// Minimal Firestore REST helpers — only what this relay needs.
-// Calling Firestore this way (with a Google Cloud OAuth2 access token,
-// not through Firebase Auth) is authorized by the service account's IAM
-// role, not by firestore.rules — same as the old Admin SDK scripts did.
+// Minimal Firestore REST helpers
 // ---------------------------------------------------------------
 function fsUrl(projectId, path) {
   return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${path}`;
@@ -169,7 +157,6 @@ async function fsDelete(projectId, accessToken, path) {
   await fetch(fsUrl(projectId, path), { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
 }
 
-// Runs a simple "collection WHERE field == value [AND field == value]" query.
 async function fsQuery(projectId, accessToken, collectionId, parentPath, fieldFilters) {
   const structuredQuery = {
     from: [{ collectionId }],
@@ -222,8 +209,7 @@ function decodeDoc(doc) {
 }
 
 // ---------------------------------------------------------------
-// FCM HTTP v1 — one request per device token (v1 has no bulk/multicast
-// call like the old legacy API; perfectly fine for one local shop's volume).
+// FCM HTTP v1
 // ---------------------------------------------------------------
 async function sendFcm(projectId, accessToken, token, title, body) {
   const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
@@ -286,6 +272,39 @@ async function handleOrder(projectId, accessToken, shopId, id) {
   return { sent: tokens.length, pruned };
 }
 
+// Order-status message text, keyed by status then language. "New" has no
+// entry — that's the initial state, not a status change worth pushing.
+const STATUS_MESSAGES = {
+  Confirmed: { en: "Your order has been confirmed!", ml: "നിങ്ങളുടെ ഓർഡർ സ്ഥിരീകരിച്ചു!" },
+  Preparing: { en: "Your order is being prepared.", ml: "നിങ്ങളുടെ ഓർഡർ തയ്യാറാക്കുന്നു." },
+  Ready: { en: "Your order is ready!", ml: "നിങ്ങളുടെ ഓർഡർ തയ്യാറാണ്!" },
+  Completed: { en: "Your order is complete. Thank you!", ml: "നിങ്ങളുടെ ഓർഡർ പൂർത്തിയായി. നന്ദി!" },
+  Cancelled: { en: "Your order has been cancelled.", ml: "നിങ്ങളുടെ ഓർഡർ റദ്ദാക്കി." },
+};
+
+async function handleOrderStatus(projectId, accessToken, shopId, id) {
+  const path = `shops/${shopId}/orders/${id}`;
+  const order = await fsGet(projectId, accessToken, path);
+  if (!order || !order.customerToken) return { skipped: true }; // customer never enabled notifications for this order
+  if (order.lastNotifiedStatus === order.status) return { skipped: true }; // avoid duplicate sends for the same status
+
+  const msg = STATUS_MESSAGES[order.status];
+  if (!msg) return { skipped: true };
+
+  const lang = order.lang === "ml" ? "ml" : "en";
+  const result = await sendFcm(projectId, accessToken, order.customerToken, `Order ${id}`, msg[lang]);
+
+  if (!result.success && ["UNREGISTERED", "NOT_FOUND", "INVALID_ARGUMENT"].includes(result.code)) {
+    // Token's stale (e.g. they cleared browser data) — clear it so future
+    // status changes on this order don't keep failing the same way.
+    await fsPatch(projectId, accessToken, path, { customerToken: null, lastNotifiedStatus: order.status });
+    return { sent: false, pruned: true };
+  }
+
+  await fsPatch(projectId, accessToken, path, { lastNotifiedStatus: order.status });
+  return { sent: result.success };
+}
+
 async function handleCatchup(projectId, accessToken, shopId) {
   const pendingNotifs = await fsQuery(projectId, accessToken, "notifications", `shops/${shopId}`, [
     { field: "sendPush", value: true },
@@ -298,5 +317,10 @@ async function handleCatchup(projectId, accessToken, shopId) {
   for (const n of pendingNotifs) await handleNotification(projectId, accessToken, shopId, n.id);
   for (const o of pendingOrders) await handleOrder(projectId, accessToken, shopId, o.id);
 
+  // Note: order-status pushes are NOT retried by catchup — they're
+  // real-time/best-effort only (there's no "pending" flag to track a
+  // failed one against). If a status push is missed, the customer can
+  // still see the current status any time via "My Orders" or the order
+  // lookup, since that always reads live from Firestore.
   return { notifications: pendingNotifs.length, orders: pendingOrders.length };
 }
