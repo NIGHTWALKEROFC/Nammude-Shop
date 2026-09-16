@@ -1,4 +1,11 @@
 // admin/js/app.js
+//
+// Push notifications (Firebase Cloud Messaging, the "Enable New Order
+// Alerts" device token, and the Cloudflare push-relay Worker) have been
+// removed from this build entirely. New-order alerts inside the admin
+// dashboard still work exactly as before - they are driven by a live
+// Firestore listener (onSnapshot) on the orders collection, which is
+// independent of push and fires instantly while this tab is open.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -8,15 +15,11 @@ import {
   getFirestore, doc, setDoc, addDoc, updateDoc, deleteDoc, collection,
   onSnapshot, query, orderBy, serverTimestamp, writeBatch, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  getMessaging, getToken, isSupported as messagingIsSupported,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
 import {
-  firebaseConfig, VAPID_KEY, SHOP_ID, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET,
-  PUSH_RELAY_URL, PUSH_RELAY_KEY,
+  firebaseConfig, SHOP_ID, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET,
 } from "../../shared/js/firebase-config.js";
-import { formatCurrency, triggerPushRelay } from "../../shared/js/utils.js";
+import { formatCurrency, describeError } from "../../shared/js/utils.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -32,6 +35,17 @@ function toast(msg) {
   show(el);
   clearTimeout(toast._t);
   toast._t = setTimeout(() => hide(el), 2600);
+}
+// A tiny stand-in for t() so describeError() (shared with the customer
+// app) can be reused here without pulling in the whole i18n dictionary.
+function adminT(key) {
+  const fallback = {
+    errorGeneric: "Something went wrong. Please try again.",
+    errorPermission: "That action was blocked (permission denied). Check that you're logged in as an admin.",
+    errorOffline: "You seem to be offline. Check your connection and try again.",
+    errorTimeout: "The request took too long. Please try again.",
+  };
+  return fallback[key] || "Something went wrong. Please try again.";
 }
 
 let categories = [];
@@ -59,6 +73,7 @@ $("#login-form").addEventListener("submit", async (e) => {
   try {
     await signInWithEmailAndPassword(auth, $("#login-email").value.trim(), $("#login-password").value);
   } catch (err) {
+    console.error(err);
     $("#login-error").textContent = "Incorrect email or password.";
     show($("#login-error"));
   }
@@ -70,7 +85,8 @@ $("#btn-forgot").addEventListener("click", async () => {
   try {
     await sendPasswordResetEmail(auth, email);
     toast("Password reset email sent.");
-  } catch {
+  } catch (err) {
+    console.error(err);
     toast("Could not send reset email.");
   }
 });
@@ -104,46 +120,57 @@ function bootAdminData() {
   listenProducts();
   listenOrders();
   listenAnnouncements();
-  triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "catchup", SHOP_ID, null);
 }
 
 // =================================================================
 // SHOP SETTINGS
 // =================================================================
 function listenShopSettings() {
-  onSnapshot(doc(db, "shops", SHOP_ID), (snap) => {
-    shopSettings = snap.exists() ? snap.data() : {};
-    const f = $("#settings-form");
-    f.name.value = shopSettings.name || "";
-    f.logoUrl.value = shopSettings.logoUrl || "";
-    f.isOpen.value = String(shopSettings.isOpen !== false);
-    f.phone.value = shopSettings.phone || "";
-    f.whatsapp.value = shopSettings.whatsapp || "";
-    f.requireAddress.value = String(shopSettings.requireAddress !== false);
-    f.minOrderAmount.value = shopSettings.minOrderAmount ?? 0;
-    f.deliveryFee.value = shopSettings.deliveryFee ?? 0;
-    f.lowStockThreshold.value = shopSettings.lowStockThreshold ?? 5;
-    f.orderPrefix.value = shopSettings.orderPrefix || "SHOP";
-    renderDashboard();
-  });
+  onSnapshot(
+    doc(db, "shops", SHOP_ID),
+    (snap) => {
+      shopSettings = snap.exists() ? snap.data() : {};
+      const f = $("#settings-form");
+      f.name.value = shopSettings.name || "";
+      f.logoUrl.value = shopSettings.logoUrl || "";
+      f.isOpen.value = String(shopSettings.isOpen !== false);
+      f.phone.value = shopSettings.phone || "";
+      f.whatsapp.value = shopSettings.whatsapp || "";
+      f.requireAddress.value = String(shopSettings.requireAddress !== false);
+      f.minOrderAmount.value = shopSettings.minOrderAmount ?? 0;
+      f.deliveryFee.value = shopSettings.deliveryFee ?? 0;
+      f.lowStockThreshold.value = shopSettings.lowStockThreshold ?? 5;
+      f.orderPrefix.value = shopSettings.orderPrefix || "SHOP";
+      renderDashboard();
+    },
+    (err) => { console.error(err); toast(describeError(err, adminT)); }
+  );
 }
 
 $("#settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
-  await setDoc(doc(db, "shops", SHOP_ID), {
-    name: f.name.value.trim(),
-    logoUrl: f.logoUrl.value.trim(),
-    isOpen: f.isOpen.value === "true",
-    phone: f.phone.value.trim(),
-    whatsapp: f.whatsapp.value.trim(),
-    requireAddress: f.requireAddress.value === "true",
-    minOrderAmount: Number(f.minOrderAmount.value) || 0,
-    deliveryFee: Number(f.deliveryFee.value) || 0,
-    lowStockThreshold: Number(f.lowStockThreshold.value) || 5,
-    orderPrefix: f.orderPrefix.value.trim() || "SHOP",
-  }, { merge: true });
-  toast("Settings saved.");
+  const submitBtn = f.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  try {
+    await setDoc(doc(db, "shops", SHOP_ID), {
+      name: f.name.value.trim(),
+      logoUrl: f.logoUrl.value.trim(),
+      isOpen: f.isOpen.value === "true",
+      phone: f.phone.value.trim(),
+      whatsapp: f.whatsapp.value.trim(),
+      requireAddress: f.requireAddress.value === "true",
+      minOrderAmount: Number(f.minOrderAmount.value) || 0,
+      deliveryFee: Number(f.deliveryFee.value) || 0,
+      lowStockThreshold: Number(f.lowStockThreshold.value) || 5,
+      orderPrefix: (f.orderPrefix.value.trim() || "SHOP").toUpperCase(),
+    }, { merge: true });
+    toast("Settings saved.");
+  } catch (err) {
+    toast(describeError(err, adminT));
+  } finally {
+    submitBtn.disabled = false;
+  }
 });
 
 // =================================================================
@@ -151,11 +178,15 @@ $("#settings-form").addEventListener("submit", async (e) => {
 // =================================================================
 function listenCategories() {
   const q = query(collection(db, "shops", SHOP_ID, "categories"), orderBy("order", "asc"));
-  onSnapshot(q, (snap) => {
-    categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    renderCategoriesTable();
-    fillCategorySelect();
-  });
+  onSnapshot(
+    q,
+    (snap) => {
+      categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderCategoriesTable();
+      fillCategorySelect();
+    },
+    (err) => { console.error(err); toast(describeError(err, adminT)); }
+  );
 }
 
 function renderCategoriesTable() {
@@ -198,19 +229,29 @@ function openCategoryForm(c) {
 $("#category-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
-  const data = { name_en: f.name_en.value.trim(), name_ml: f.name_ml.value.trim(), order: Number(f.order.value) || 0 };
-  if (f.id.value) {
-    await updateDoc(doc(db, "shops", SHOP_ID, "categories", f.id.value), data);
-  } else {
-    await addDoc(collection(db, "shops", SHOP_ID, "categories"), data);
+  const name_en = f.name_en.value.trim();
+  if (!name_en) { toast("Category name (English) is required."); return; }
+  const data = { name_en, name_ml: f.name_ml.value.trim(), order: Number(f.order.value) || 0 };
+  try {
+    if (f.id.value) {
+      await updateDoc(doc(db, "shops", SHOP_ID, "categories", f.id.value), data);
+    } else {
+      await addDoc(collection(db, "shops", SHOP_ID, "categories"), data);
+    }
+    closeModal("modal-category-form");
+    toast("Category saved.");
+  } catch (err) {
+    toast(describeError(err, adminT));
   }
-  closeModal("modal-category-form");
-  toast("Category saved.");
 });
 
 async function deleteCategory(id) {
   if (!confirm("Delete this category? Products in it will keep their category ID but it won't show a name.")) return;
-  await deleteDoc(doc(db, "shops", SHOP_ID, "categories", id));
+  try {
+    await deleteDoc(doc(db, "shops", SHOP_ID, "categories", id));
+  } catch (err) {
+    toast(describeError(err, adminT));
+  }
 }
 
 // =================================================================
@@ -218,12 +259,16 @@ async function deleteCategory(id) {
 // =================================================================
 function listenProducts() {
   const q = query(collection(db, "shops", SHOP_ID, "products"), orderBy("name_en", "asc"));
-  onSnapshot(q, (snap) => {
-    products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    selectedProductIds = new Set([...selectedProductIds].filter((id) => products.some((p) => p.id === id)));
-    renderProductsTable();
-    renderDashboard();
-  });
+  onSnapshot(
+    q,
+    (snap) => {
+      products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      selectedProductIds = new Set([...selectedProductIds].filter((id) => products.some((p) => p.id === id)));
+      renderProductsTable();
+      renderDashboard();
+    },
+    (err) => { console.error(err); toast(describeError(err, adminT)); }
+  );
 }
 
 let selectedProductIds = new Set();
@@ -279,13 +324,17 @@ $("#products-select-all").addEventListener("change", (e) => {
 
 async function bulkSetProductsActive(active) {
   if (selectedProductIds.size === 0) return;
-  const batch = writeBatch(db);
-  selectedProductIds.forEach((id) => {
-    batch.update(doc(db, "shops", SHOP_ID, "products", id), { active });
-  });
-  await batch.commit();
-  toast(active ? "Selected products shown to customers." : "Selected products hidden from customers.");
-  selectedProductIds = new Set();
+  try {
+    const batch = writeBatch(db);
+    selectedProductIds.forEach((id) => {
+      batch.update(doc(db, "shops", SHOP_ID, "products", id), { active });
+    });
+    await batch.commit();
+    toast(active ? "Selected products shown to customers." : "Selected products hidden from customers.");
+    selectedProductIds = new Set();
+  } catch (err) {
+    toast(describeError(err, adminT));
+  }
 }
 $("#btn-bulk-show").addEventListener("click", () => bulkSetProductsActive(true));
 $("#btn-bulk-hide").addEventListener("click", () => bulkSetProductsActive(false));
@@ -294,14 +343,21 @@ $("#btn-bulk-delete").addEventListener("click", async () => {
   const n = selectedProductIds.size;
   if (n === 0) return;
   if (!confirm(`Delete ${n} selected product(s)? Past orders will keep showing their name and price as they were.`)) return;
-  const batch = writeBatch(db);
-  selectedProductIds.forEach((id) => batch.delete(doc(db, "shops", SHOP_ID, "products", id)));
-  await batch.commit();
-  toast(`${n} product(s) deleted.`);
-  selectedProductIds = new Set();
+  try {
+    const batch = writeBatch(db);
+    selectedProductIds.forEach((id) => batch.delete(doc(db, "shops", SHOP_ID, "products", id)));
+    await batch.commit();
+    toast(`${n} product(s) deleted.`);
+    selectedProductIds = new Set();
+  } catch (err) {
+    toast(describeError(err, adminT));
+  }
 });
 
-$("#btn-new-product").addEventListener("click", () => openProductForm(null));
+$("#btn-new-product").addEventListener("click", () => {
+  if (categories.length === 0) { toast("Add a category first."); return; }
+  openProductForm(null);
+});
 
 function openProductForm(p) {
   const f = $("#product-form");
@@ -330,6 +386,12 @@ $("#product-form").addEventListener("submit", async (e) => {
   submitBtn.textContent = "Saving…";
 
   try {
+    const price = Number(f.price.value);
+    const stock = Math.round(Number(f.stock.value));
+    if (!Number.isFinite(price) || price < 0) throw new Error("Enter a valid, non-negative price.");
+    if (!Number.isFinite(stock) || stock < 0) throw new Error("Enter a valid, non-negative stock quantity.");
+    if (!f.categoryId.value) throw new Error("Please choose a category.");
+
     const existing = products.find((p) => p.id === f.id.value);
     const oldPrice = existing?.price;
     const oldStock = existing?.stock ?? 0;
@@ -344,11 +406,13 @@ $("#product-form").addEventListener("submit", async (e) => {
       description_en: f.description_en.value.trim(),
       description_ml: f.description_ml.value.trim(),
       categoryId: f.categoryId.value,
-      price: Number(f.price.value),
-      stock: Number(f.stock.value),
+      price,
+      stock,
       imageUrl,
       active: f.active.value === "true",
     };
+
+    if (!data.name_en) throw new Error("Product name (English) is required.");
 
     let productId = f.id.value;
     if (productId) {
@@ -364,14 +428,11 @@ $("#product-form").addEventListener("submit", async (e) => {
       else if (oldPrice !== undefined && oldPrice !== data.price) type = "price_update";
       else if (oldStock <= 0 && data.stock > 0) type = "back_in_stock";
 
-      await createAnnouncementAndNotify({
-        type,
-        title_en: notifyTitleFor(type, "en", data),
-        title_ml: notifyTitleFor(type, "ml", data),
-        body_en: notifyBodyFor(type, "en", data, oldPrice),
-        body_ml: notifyBodyFor(type, "ml", data, oldPrice),
-        productId,
-        sendNotification: true,
+      await createAnnouncement({
+        title_en: notifyTitleFor(type, "en"),
+        title_ml: notifyTitleFor(type, "ml"),
+        body_en: notifyBodyFor(type, "en", data),
+        body_ml: notifyBodyFor(type, "ml", data),
       });
     }
 
@@ -379,9 +440,10 @@ $("#product-form").addEventListener("submit", async (e) => {
     toast("Product saved.");
   } catch (err) {
     console.error(err);
-    // Surface the specific "too large" message from uploadProductImage
-    // directly; fall back to a generic message for anything else.
-    toast(err.message && err.message.includes("too large") ? err.message : "Could not save product.");
+    // Surface a specific validation/upload message directly when we threw
+    // it ourselves above; fall back to the generic Firestore-error mapper
+    // for anything else (permission-denied, offline, etc.).
+    toast(err.message && !err.code ? err.message : describeError(err, adminT));
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "Save Product";
@@ -390,14 +452,16 @@ $("#product-form").addEventListener("submit", async (e) => {
 
 async function deleteProduct(id) {
   if (!confirm("Delete this product? Past orders will keep showing the product name and price as they were.")) return;
-  await deleteDoc(doc(db, "shops", SHOP_ID, "products", id));
+  try {
+    await deleteDoc(doc(db, "shops", SHOP_ID, "products", id));
+  } catch (err) {
+    toast(describeError(err, adminT));
+  }
 }
 
-// SIMPLIFIED: previously resized every image via a canvas before upload.
-// Removed — canvas resizing can be slow on very old/low-end phones, and
-// Cloudinary's free tier already handles reasonably-sized photos fine. Now
-// just rejects anything over 5MB with a clear message and uploads the
-// original file as-is.
+// Rejects anything over 5MB with a clear message and uploads the original
+// file as-is to Cloudinary's free tier (no image resizing - keeps this
+// simple and fast even on older/low-end phones).
 async function uploadProductImage(file) {
   const MAX_BYTES = 5 * 1024 * 1024;
   if (file.size > MAX_BYTES) {
@@ -412,8 +476,9 @@ async function uploadProductImage(file) {
     `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
     { method: "POST", body: formData }
   );
-  if (!res.ok) throw new Error("Image upload failed");
+  if (!res.ok) throw new Error("Image upload failed. Please try again.");
   const data = await res.json();
+  if (!data.secure_url) throw new Error("Image upload failed. Please try again.");
   return data.secure_url;
 }
 
@@ -423,35 +488,6 @@ $("#product-form [name='imageFile']").addEventListener("change", (e) => {
   const preview = $("#product-image-preview");
   preview.src = URL.createObjectURL(file);
   show(preview);
-});
-
-// =================================================================
-// OWNER "NEW ORDER" PUSH ALERTS
-// =================================================================
-$("#btn-enable-order-alerts").addEventListener("click", async () => {
-  try {
-    if (!("Notification" in window)) { toast("Notifications aren't supported on this browser."); return; }
-    if (Notification.permission === "denied") { toast("Notifications are blocked in your browser settings."); return; }
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return;
-
-    const supported = await messagingIsSupported().catch(() => false);
-    if (!supported) { toast("Push isn't supported on this browser."); return; }
-
-    const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
-    const messaging = getMessaging(app);
-    const fcmToken = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
-    if (!fcmToken) return;
-
-    await setDoc(doc(db, "ownerNotificationTokens", fcmToken), {
-      shopId: SHOP_ID,
-      updatedAt: serverTimestamp(),
-    });
-    toast("New order alerts enabled on this device.");
-  } catch (err) {
-    console.warn(err);
-    toast("Could not enable alerts.");
-  }
 });
 
 // =================================================================
@@ -504,31 +540,35 @@ let latestOrderTs = 0;
 
 function listenOrders() {
   const q = query(collection(db, "shops", SHOP_ID, "orders"), orderBy("createdAt", "desc"));
-  onSnapshot(q, (snap) => {
-    orders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    renderOrdersList();
-    renderDashboard();
+  onSnapshot(
+    q,
+    (snap) => {
+      orders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderOrdersList();
+      renderDashboard();
 
-    orders.forEach((o) => {
-      const ts = o.createdAt?.toMillis ? o.createdAt.toMillis() : 0;
-      if (ts > latestOrderTs) latestOrderTs = ts;
-    });
-
-    const lastSeen = Number(localStorage.getItem("admin_orders_last_seen") || 0);
-    if (!ordersFirstLoad) {
-      snap.docChanges().forEach((change) => {
-        if (change.type !== "added") return;
-        const o = change.doc.data();
+      orders.forEach((o) => {
         const ts = o.createdAt?.toMillis ? o.createdAt.toMillis() : 0;
-        if (ts > lastSeen) {
-          toast(`🛒 New order from ${o.customerName || "a customer"}`);
-          playNewOrderChime();
-        }
+        if (ts > latestOrderTs) latestOrderTs = ts;
       });
-    }
-    ordersFirstLoad = false;
-    setOrdersBadge(latestOrderTs > lastSeen);
-  });
+
+      const lastSeen = Number(localStorage.getItem("admin_orders_last_seen") || 0);
+      if (!ordersFirstLoad) {
+        snap.docChanges().forEach((change) => {
+          if (change.type !== "added") return;
+          const o = change.doc.data();
+          const ts = o.createdAt?.toMillis ? o.createdAt.toMillis() : 0;
+          if (ts > lastSeen) {
+            toast(`🛒 New order from ${o.customerName || "a customer"}`);
+            playNewOrderChime();
+          }
+        });
+      }
+      ordersFirstLoad = false;
+      setOrdersBadge(latestOrderTs > lastSeen);
+    },
+    (err) => { console.error(err); toast(describeError(err, adminT)); }
+  );
 }
 
 function setOrdersBadge(on) {
@@ -541,6 +581,8 @@ function markOrdersSeen() {
   setOrdersBadge(false);
 }
 
+// A short two-tone chime for new orders while this tab is open. Purely a
+// local Web Audio effect - no push notification / background delivery.
 function playNewOrderChime() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -557,7 +599,7 @@ function playNewOrderChime() {
       osc.stop(ctx.currentTime + i * 0.12 + 0.12);
     });
   } catch {
-    // Autoplay/audio restrictions — the visual badge and toast still work.
+    // Autoplay/audio restrictions - the visual badge and toast still work.
   }
 }
 
@@ -610,16 +652,18 @@ $("#btn-bulk-status-apply").addEventListener("click", async () => {
   if (n === 0) return;
   const newStatus = $("#bulk-status-select").value;
   const ids = [...selectedOrderIds];
-  const batch = writeBatch(db);
-  ids.forEach((id) => {
-    batch.update(doc(db, "shops", SHOP_ID, "orders", id), { status: newStatus, updatedAt: serverTimestamp() });
-  });
-  await batch.commit();
-  // Instantly push each affected customer that their order's status changed.
-  ids.forEach((id) => triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "order_status", SHOP_ID, id));
-  toast(`${n} order(s) marked ${newStatus}.`);
-  selectedOrderIds = new Set();
-  renderOrdersList();
+  try {
+    const batch = writeBatch(db);
+    ids.forEach((id) => {
+      batch.update(doc(db, "shops", SHOP_ID, "orders", id), { status: newStatus, updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+    toast(`${n} order(s) marked ${newStatus}.`);
+    selectedOrderIds = new Set();
+    renderOrdersList();
+  } catch (err) {
+    toast(describeError(err, adminT));
+  }
 });
 
 function openOrderDetail(o) {
@@ -644,16 +688,18 @@ function openOrderDetail(o) {
     </select>
   `;
   $("#order-status-select").addEventListener("change", async (e) => {
-    await updateDoc(doc(db, "shops", SHOP_ID, "orders", o.id), { status: e.target.value, updatedAt: serverTimestamp() });
-    // Instantly tell the relay to push this customer their new status.
-    triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "order_status", SHOP_ID, o.id);
-    toast("Order status updated.");
+    try {
+      await updateDoc(doc(db, "shops", SHOP_ID, "orders", o.id), { status: e.target.value, updatedAt: serverTimestamp() });
+      toast("Order status updated.");
+    } catch (err) {
+      toast(describeError(err, adminT));
+    }
   });
   openModal("modal-order-detail");
 }
 
 // =================================================================
-// CSV EXPORT — exports whatever is currently visible under the Orders
+// CSV EXPORT - exports whatever is currently visible under the Orders
 // tab's status filter. Pure client-side, no server involved.
 // =================================================================
 function csvEscape(value) {
@@ -691,21 +737,25 @@ function exportOrdersCsv() {
 $("#btn-export-orders").addEventListener("click", exportOrdersCsv);
 
 // =================================================================
-// ANNOUNCEMENTS
+// ANNOUNCEMENTS (in-app only - no push)
 // =================================================================
 function listenAnnouncements() {
   const q = query(collection(db, "shops", SHOP_ID, "notifications"), orderBy("createdAt", "desc"));
-  onSnapshot(q, (snap) => {
-    const list = $("#announcements-list");
-    list.innerHTML = "";
-    snap.forEach((d) => {
-      const n = d.data();
-      const div = document.createElement("div");
-      div.className = "announcement-card";
-      div.innerHTML = `<strong>${escapeHtml(n.title_en || "")}</strong><div class="muted">${escapeHtml(n.body_en || "")}</div>`;
-      list.appendChild(div);
-    });
-  });
+  onSnapshot(
+    q,
+    (snap) => {
+      const list = $("#announcements-list");
+      list.innerHTML = "";
+      snap.forEach((d) => {
+        const n = d.data();
+        const div = document.createElement("div");
+        div.className = "announcement-card";
+        div.innerHTML = `<strong>${escapeHtml(n.title_en || "")}</strong><div class="muted">${escapeHtml(n.body_en || "")}</div>`;
+        list.appendChild(div);
+      });
+    },
+    (err) => console.error(err)
+  );
 }
 
 $("#btn-new-announcement").addEventListener("click", () => {
@@ -716,33 +766,31 @@ $("#btn-new-announcement").addEventListener("click", () => {
 $("#announcement-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
-  await createAnnouncementAndNotify({
-    type: f.type.value,
-    title_en: f.title_en.value.trim(),
-    title_ml: f.title_ml.value.trim(),
-    body_en: f.body_en.value.trim(),
-    body_ml: f.body_ml.value.trim(),
-    sendNotification: f.sendNotification.value === "true",
-  });
-  closeModal("modal-announcement-form");
-  toast("Announcement sent.");
+  const title_en = f.title_en.value.trim();
+  const body_en = f.body_en.value.trim();
+  if (!title_en || !body_en) { toast("Title and message (English) are required."); return; }
+  try {
+    await createAnnouncement({
+      title_en,
+      title_ml: f.title_ml.value.trim(),
+      body_en,
+      body_ml: f.body_ml.value.trim(),
+    });
+    closeModal("modal-announcement-form");
+    toast("Announcement posted.");
+  } catch (err) {
+    toast(describeError(err, adminT));
+  }
 });
 
-async function createAnnouncementAndNotify({ type, title_en, title_ml, body_en, body_ml, productId, sendNotification }) {
-  const ref = await addDoc(collection(db, "shops", SHOP_ID, "notifications"), {
-    type, title_en, title_ml, body_en, body_ml,
-    productId: productId || null,
-    sendPush: !!sendNotification,
-    pushSent: false,
+async function createAnnouncement({ title_en, title_ml, body_en, body_ml }) {
+  await addDoc(collection(db, "shops", SHOP_ID, "notifications"), {
+    title_en, title_ml, body_en, body_ml,
     createdAt: serverTimestamp(),
   });
-
-  if (sendNotification) {
-    triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "notification", SHOP_ID, ref.id);
-  }
 }
 
-function notifyTitleFor(type, lang, data) {
+function notifyTitleFor(type, lang) {
   const map = {
     new_product: { en: "New Product Available", ml: "പുതിയ ഉൽപ്പന്നം ലഭ്യമാണ്" },
     price_update: { en: "Price Updated", ml: "വില പുതുക്കി" },
@@ -751,7 +799,7 @@ function notifyTitleFor(type, lang, data) {
   };
   return map[type]?.[lang] || map.general[lang];
 }
-function notifyBodyFor(type, lang, data, oldPrice) {
+function notifyBodyFor(type, lang, data) {
   const name = lang === "ml" && data.name_ml ? data.name_ml : data.name_en;
   if (type === "price_update") return lang === "ml" ? `${name} ഇപ്പോൾ ₹${data.price}` : `${name} is now ₹${data.price}`;
   if (type === "new_product") return lang === "ml" ? `${name} ഇപ്പോൾ ലഭ്യമാണ്.` : `${name} is now available.`;
@@ -764,15 +812,19 @@ function notifyBodyFor(type, lang, data, oldPrice) {
 // =================================================================
 async function clearCollection(subpath, confirmMsg) {
   if (!confirm(confirmMsg)) return;
-  const snap = await getDocs(collection(db, "shops", SHOP_ID, subpath));
-  const docs = snap.docs;
-  const CHUNK = 400;
-  for (let i = 0; i < docs.length; i += CHUNK) {
-    const batch = writeBatch(db);
-    docs.slice(i, i + CHUNK).forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+  try {
+    const snap = await getDocs(collection(db, "shops", SHOP_ID, subpath));
+    const docs = snap.docs;
+    const CHUNK = 400;
+    for (let i = 0; i < docs.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      docs.slice(i, i + CHUNK).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+    toast(`Cleared ${docs.length} item(s).`);
+  } catch (err) {
+    toast(describeError(err, adminT));
   }
-  toast(`Cleared ${docs.length} item(s).`);
 }
 
 $("#btn-clear-orders").addEventListener("click", () =>
