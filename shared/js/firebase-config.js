@@ -10,12 +10,12 @@
 // Never commit a service-account JSON file - that one IS secret.
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyBgf9mNKgk1wXrd9VDPxWWul8Mr7dA9dQ0",
-  authDomain: "localshop-website.firebaseapp.com",
-  projectId: "localshop-website",
-  storageBucket: "localshop-website.firebasestorage.app",
-  messagingSenderId: "42171379357",
-  appId: "1:42171379357:web:86bc42a7ebb263fe70ae74",
+  apiKey: "AIzaSyBhc-zTOXlrH5FqzIajwZ_HZStIoDNELsE",
+  authDomain: "local-shop-3c538.firebaseapp.com",
+  projectId: "local-shop-3c538",
+  storageBucket: "local-shop-3c538.firebasestorage.app",
+  messagingSenderId: "141521297647",
+  appId: "1:141521297647:web:16692f3c05aed4d8553b1a",
 };
 
 // The shop this deployment belongs to. If you ever host more than one shop
