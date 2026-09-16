@@ -9,20 +9,18 @@ rules_version = '2';
 //
 // KNOWN LIMITATION (documented on purpose, not fixed here):
 // Rules validate the ORDER document and, below, cross-check each item's
-// price against the live product doc — but rules cannot force the
+// price against the live product doc - but rules cannot force the
 // accompanying stock-decrement writes in the app's transaction to actually
 // happen; a request crafted to call the Firestore API directly (bypassing
 // app.js) could create a valid-looking order without ever decrementing
-// stock. Fully closing that gap needs a trusted server. The push-relay
-// Worker (see /server/push-relay) IS such a server, but it only sends
-// notifications — it does not (and should not) get involved in order
-// validation, since giving it write-authority there would need it to
-// duplicate this whole rules file's logic. The mitigations below (live
-// price cross-check, size caps, isOpen check) meaningfully shrink the
-// abuse surface — a forged order can no longer under-price items or
-// bypass the closed-shop toggle — while the worst remaining case is a
-// spurious order with no real stock impact, which the shop owner can
-// simply cancel from the admin dashboard.
+// stock. Fully closing that gap needs a trusted server (e.g. a Cloud
+// Function on the paid Blaze plan). The mitigations below (live price
+// cross-check, total = subtotal + deliveryFee check, size caps, isOpen
+// check, exact field allow-list) meaningfully shrink the abuse surface -
+// a forged order can no longer under-price items, inflate its total, add
+// unexpected fields, or bypass the closed-shop toggle - while the worst
+// remaining case is a spurious order with no real stock impact, which the
+// shop owner can simply cancel from the admin dashboard.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -38,7 +36,7 @@ service cloud.firestore {
     function isValidStockDecrement() {
       let before = resource.data;
       let after = request.resource.data;
-      return after.stock is int &&
+      return after.stock is number &&
              after.stock >= 0 &&
              after.stock < before.stock &&
              // no other field may change in this kind of write
@@ -47,16 +45,22 @@ service cloud.firestore {
 
     function isValidNewOrder(shopId) {
       let d = request.resource.data;
-      return d.status == 'New' &&
+      return d.keys().hasOnly([
+               'shopId', 'customerName', 'phone', 'address', 'note', 'items',
+               'subtotal', 'deliveryFee', 'total', 'status', 'lang',
+               'createdAt', 'updatedAt'
+             ]) &&
+             d.status == 'New' &&
              d.shopId is string && d.shopId == shopId &&
              d.customerName is string && d.customerName.size() > 0 && d.customerName.size() <= 200 &&
              d.phone is string && d.phone.size() > 0 && d.phone.size() <= 30 &&
              (!('address' in d) || (d.address is string && d.address.size() <= 500)) &&
              (!('note' in d) || (d.note is string && d.note.size() <= 500)) &&
+             (!('lang' in d) || d.lang in ['en', 'ml']) &&
              d.items is list && d.items.size() > 0 && d.items.size() <= 50 &&
              d.items.all(i,
                i.productId is string &&
-               i.qty is int && i.qty > 0 && i.qty <= 999 &&
+               i.qty is number && i.qty > 0 && i.qty <= 999 &&
                i.price is number && i.price >= 0 &&
                // The price on each order item must match the product's
                // CURRENT live price. This is the one cross-document check
@@ -64,22 +68,17 @@ service cloud.firestore {
                // request from checking out at a fake (lower) price.
                i.price == get(/databases/$(database)/documents/shops/$(shopId)/products/$(i.productId)).data.price
              ) &&
+             d.subtotal is number && d.subtotal >= 0 &&
+             d.deliveryFee is number && d.deliveryFee >= 0 &&
              d.total is number && d.total >= 0 &&
-             // Server-side enforcement of the shop's open/closed toggle —
+             // The total must actually be subtotal + deliveryFee, so a
+             // forged request can't lower the total while keeping items
+             // that price-check individually.
+             d.total == d.subtotal + d.deliveryFee &&
+             // Server-side enforcement of the shop's open/closed toggle -
              // mirrors the client-side check in checkout, but this is the
              // one that actually can't be bypassed from devtools.
              get(/databases/$(database)/documents/shops/$(shopId)).data.isOpen != false;
-    }
-
-    function isValidSubscription() {
-      let d = request.resource.data;
-      // Anyone can write here (no login for customers), so the shape is
-      // validated tightly instead of trusting the caller: fixed field set,
-      // bounded string lengths, and lang locked to the two supported values.
-      return d.keys().hasOnly(['shopId', 'lang', 'platform', 'updatedAt']) &&
-             d.shopId is string && d.shopId.size() > 0 && d.shopId.size() <= 100 &&
-             d.lang in ['en', 'ml'] &&
-             d.platform is string && d.platform.size() <= 100;
     }
 
     match /shops/{shopId} {
@@ -94,7 +93,7 @@ service cloud.firestore {
       match /products/{productId} {
         allow read: if true;
         // Admin can change anything. A customer's checkout transaction can
-        // ONLY decrement stock (never price/name), and never below zero —
+        // ONLY decrement stock (never price/name), and never below zero -
         // this is what lets stock be verified and reduced without needing
         // a paid Cloud Function.
         allow update: if isAdmin() || isValidStockDecrement();
@@ -111,31 +110,14 @@ service cloud.firestore {
       }
 
       match /notifications/{notificationId} {
-        allow read: if true;         // notification history, shown to all customers
+        allow read: if true;         // notification/announcement history, shown to all customers
         allow write: if isAdmin();
       }
-    }
-
-    match /notificationSubscriptions/{token} {
-      // Anyone can register/refresh their own device token (no login
-      // needed for customers). Nobody can read the list of tokens from a
-      // web/mobile client — only the push-relay Worker (which authenticates
-      // as a Google Cloud service account via OAuth2, not through these
-      // rules at all — see /server/push-relay) reads it, to actually
-      // send pushes.
-      allow create, update: if isValidSubscription();
-      allow read, list, delete: if isAdmin();
     }
 
     match /adminUsers/{uid} {
       allow read: if isAdmin() && request.auth.uid == uid;
       allow write: if false; // manage via Firebase Console / Admin SDK only
-    }
-
-    match /ownerNotificationTokens/{token} {
-      // Lets the shop owner's own browser get a "new order" push. Only an
-      // admin can register/read these — customers never touch this collection.
-      allow read, write: if isAdmin();
     }
   }
 }
