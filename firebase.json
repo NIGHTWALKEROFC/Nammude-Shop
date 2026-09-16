@@ -5,7 +5,6 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
-      "server/**",
       "README.md",
       ".gitignore"
     ],
@@ -17,14 +16,6 @@
     "headers": [
       {
         "source": "/customer/sw.js",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      },
-      {
-        "source": "/customer/firebase-messaging-sw.js",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      },
-      {
-        "source": "/admin/firebase-messaging-sw.js",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       }
     ]
