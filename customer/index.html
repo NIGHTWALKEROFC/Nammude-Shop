@@ -6,7 +6,7 @@
 <title>Shop</title>
 <meta name="description" content="Order from your local shop online." />
 <link rel="manifest" href="./manifest.json" />
-<meta name="theme-color" content="#E9532C" />
+<meta name="theme-color" content="#131921" />
 <link rel="icon" href="./icons/icon-192.png" />
 <link rel="apple-touch-icon" href="./icons/icon-192.png" />
 <link rel="stylesheet" href="./css/style.css" />
@@ -38,17 +38,6 @@
     </div>
   </section>
 
-  <!-- STEP 3: NOTIFICATIONS -->
-  <section id="screen-notify" class="screen screen--center hidden">
-    <div class="onboard-card">
-      <div class="onboard-icon">🔔</div>
-      <h1 data-i18n="notifyTitle">Stay Updated</h1>
-      <p data-i18n="notifyBody">Get notifications about new products, price changes, stock availability and shop announcements.</p>
-      <button id="btn-enable-notify" class="btn btn-primary" data-i18n="enableNotifications">Enable Notifications</button>
-      <button id="btn-notify-skip" class="btn btn-text" data-i18n="notNow">Not Now</button>
-    </div>
-  </section>
-
   <!-- MAIN APP -->
   <div id="app" class="hidden">
     <header class="topbar">
@@ -61,6 +50,12 @@
       </div>
       <button id="btn-lang-switch" class="icon-btn" title="Language">EN</button>
     </header>
+
+    <div class="trust-strip">
+      <span data-i18n="freeDelivery">Free Delivery</span>
+      <span data-i18n="securePayment">Cash / UPI on Delivery</span>
+      <span data-i18n="easyReturns">Easy Order Tracking</span>
+    </div>
 
     <div class="search-bar">
       <div class="search-input-wrap">
@@ -103,15 +98,11 @@
     </main>
 
     <main id="view-notifications" class="view hidden">
-      <div id="notif-permission-banner" class="notif-permission-banner hidden">
-        <span id="notif-permission-text"></span>
-        <button id="btn-enable-notify-inline" class="btn btn-primary">Enable</button>
-      </div>
       <div id="notifications-list" class="notifications-list"></div>
       <p id="notifications-empty" class="empty-state hidden" data-i18n="noNotifications"></p>
     </main>
 
-    <!-- Swiggy/Zomato-style floating "View Cart" bar — shown whenever the cart is non-empty -->
+    <!-- Floating "View Cart" bar - shown whenever the cart is non-empty -->
     <div id="cart-floating-bar" class="cart-floating-bar hidden">
       <div class="cart-floating-info">
         <span id="cart-floating-count">0 items</span>
@@ -180,13 +171,13 @@
 
       <form id="checkout-form" class="checkout-form hidden">
         <label data-i18n="customerName">Your Name</label>
-        <input name="customerName" required />
+        <input name="customerName" required maxlength="200" autocomplete="name" />
         <label data-i18n="phoneNumber">Phone Number</label>
-        <input name="phone" type="tel" required />
+        <input name="phone" type="tel" required maxlength="30" autocomplete="tel" />
         <label id="label-address" data-i18n="address">Delivery Address</label>
-        <textarea name="address" rows="2"></textarea>
+        <textarea name="address" rows="2" maxlength="500" autocomplete="street-address"></textarea>
         <label data-i18n="orderNote">Order Note (optional)</label>
-        <textarea name="note" rows="2"></textarea>
+        <textarea name="note" rows="2" maxlength="500"></textarea>
         <button type="submit" class="btn btn-primary btn-block" data-i18n="placeOrder">Place Order</button>
       </form>
     </div>
