@@ -9,10 +9,6 @@ ui-debug.log
 *serviceAccountKey*.json
 *-firebase-adminsdk-*.json
 
-# Cloudflare Worker (push relay) local files
-server/push-relay/.wrangler/
-server/push-relay/.dev.vars
-
 # Editor / OS
 .DS_Store
 .vscode/
