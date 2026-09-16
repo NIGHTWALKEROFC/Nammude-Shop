@@ -2,7 +2,7 @@
 
 // Generates a short, non-sequential, human-readable order code, e.g. SHOP-7K42P
 // This code IS the Firestore document ID for the order (see checkout code
-// in customer/js/app.js) — that's what lets a customer look up their order
+// in customer/js/app.js) - that's what lets a customer look up their order
 // later using just this code, with no login needed.
 export function generateOrderCode(prefix = "SHOP") {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I to avoid confusion
@@ -13,7 +13,7 @@ export function generateOrderCode(prefix = "SHOP") {
   return `${prefix}-${code}`;
 }
 
-export function formatCurrency(amount, currency = "₹") {
+export function formatCurrency(amount, currency = "\u20B9") {
   const n = Number(amount) || 0;
   return `${currency}${n.toFixed(2).replace(/\.00$/, "")}`;
 }
@@ -31,14 +31,20 @@ const CART_KEY = "shop_cart";
 
 export function getCart() {
   try {
-    return JSON.parse(localStorage.getItem(CART_KEY)) || {};
+    const parsed = JSON.parse(localStorage.getItem(CART_KEY));
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
   }
 }
 
 export function saveCart(cart) {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  try {
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  } catch (err) {
+    // localStorage can throw in private-browsing modes or when full.
+    console.warn("Could not save cart:", err.message);
+  }
 }
 
 export function clearCart() {
@@ -46,25 +52,26 @@ export function clearCart() {
 }
 
 // ---------------------------------------------------------------
-// PUSH RELAY (new) — fires the Cloudflare Worker so a just-created order
-// or announcement is delivered as a real phone notification immediately.
-// Used by both customer/js/app.js (after placing an order) and
-// admin/js/app.js (after sending an announcement, and once on login to
-// "catch up" on anything that failed to send earlier).
-//
-// This NEVER throws and never blocks the caller — push delivery is a
-// nice-to-have. The in-app Notifications/Orders tabs and the order itself
-// are already saved in Firestore regardless of whether this succeeds.
+// FRIENDLY FIRESTORE / NETWORK ERROR MESSAGES
 // ---------------------------------------------------------------
-export async function triggerPushRelay(relayUrl, relayKey, type, shopId, id) {
-  if (!relayUrl || relayUrl.includes("YOUR-SUBDOMAIN")) return; // relay not deployed yet — silently skip
-  try {
-    await fetch(relayUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Relay-Key": relayKey },
-      body: JSON.stringify({ type, shopId, id }),
-    });
-  } catch (err) {
-    console.warn("Push relay call failed (still saved in Firestore, just not pushed to phones):", err.message);
+// Firestore errors carry a machine-readable `code` (e.g. "permission-denied",
+// "unavailable"). Showing one generic "Something went wrong" message for
+// every possible failure makes real problems (rules misconfigured, device
+// offline, etc.) very hard to diagnose. This maps the common codes to a
+// short, honest, user-facing sentence, and always logs the full error to
+// the console for whoever is debugging.
+export function describeError(err, t) {
+  console.error(err);
+  const code = err && err.code;
+  switch (code) {
+    case "permission-denied":
+      return t("errorPermission");
+    case "unavailable":
+    case "network-request-failed":
+      return t("errorOffline");
+    case "deadline-exceeded":
+      return t("errorTimeout");
+    default:
+      return t("errorGeneric");
   }
 }
