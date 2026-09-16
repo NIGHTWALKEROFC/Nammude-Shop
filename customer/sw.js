@@ -1,83 +1,18 @@
 // customer/sw.js
 //
-// IMPORTANT — this file does TWO jobs on purpose:
-//   1. Offline app-shell caching
-//   2. Firebase Cloud Messaging background push (moved here from the old
-//      separate customer/firebase-messaging-sw.js)
+// Offline app-shell caching ONLY. Push notifications (Firebase Cloud
+// Messaging) have been removed from this build entirely, so this service
+// worker no longer imports firebase-messaging, registers a background
+// message handler, or handles notification clicks.
 //
-// WHY THEY'RE MERGED:
-// A service worker's "scope" is derived from the folder it lives in unless
-// you pass an explicit {scope} option. Both sw.js and firebase-messaging-sw.js
-// used to live in /customer/ with no explicit scope, so they were BOTH
-// registered at the same scope. In the Service Worker spec a scope maps to
-// ONE registration — registering a second script at that same scope updates
-// the existing registration to point at the new script. Whichever one was
-// registered/updated LAST silently became the only active worker, and the
-// other one's job stopped happening intermittently. One service worker for
-// the whole site removes the conflict entirely.
+// Cache-first for same-origin GET requests, with runtime caching so pages
+// visited after the first load also work offline. Cross-origin requests
+// (Firestore, Cloudinary, Google Fonts) are always left to the network -
+// this is purely an app-shell cache, not a generic proxy.
 //
-// FIX IN THIS VERSION (real bug): the old fetch handler only ever served
-// what was in APP_SHELL — anything fetched later (shared/js modules, the
-// shop logo, product images) was fetched from the network every time and
-// NEVER cached, so returning users offline only ever got the 5 original
-// files, not a working app. The fetch handler below now also stores
-// same-origin responses into the cache the first time they're fetched
-// ("runtime caching"), so offline mode keeps working as you browse more
-// of the site.
-//
-// Keep the Firebase config values identical to shared/js/firebase-config.js.
-
-importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js");
-
-firebase.initializeApp({
-  apiKey: "AIzaSyBgf9mNKgk1wXrd9VDPxWWul8Mr7dA9dQ0",
-  authDomain: "localshop-website.firebaseapp.com",
-  projectId: "localshop-website",
-  storageBucket: "localshop-website.firebasestorage.app",
-  messagingSenderId: "42171379357",
-  appId: "1:42171379357:web:86bc42a7ebb263fe70ae74",
-});
-
-// Guard: getting the messaging instance can throw in browsers without push
-// support (e.g. some in-app webviews). Never let that break the offline
-// caching below.
-let messaging = null;
-try {
-  messaging = firebase.messaging();
-} catch (err) {
-  // Push just won't be available in this browser — caching still works.
-}
-
-if (messaging) {
-  // Fires only when the site is closed or in the background. Foreground
-  // messages (site open + tab focused) are handled by onMessage() in app.js.
-  messaging.onBackgroundMessage((payload) => {
-    const title = payload.notification?.title || "Shop update";
-    const options = {
-      body: payload.notification?.body || "",
-      icon: "./icons/icon-192.png",
-      badge: "./icons/icon-192.png",
-      data: payload.data || {},
-      tag: payload.data?.tag || "shop-update", // collapses rapid duplicate pushes into one
-    };
-    self.registration.showNotification(title, options);
-  });
-}
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  event.waitUntil(clients.openWindow("./"));
-});
-
-// ---------------------------------------------------------------
-// Offline app-shell caching
-// ---------------------------------------------------------------
-// Bumped v3 -> v4: customer/index.html and customer/css/style.css both
-// changed in this update (new cart summary rows, reorder button, overflow
-// fix). Without bumping this, anyone who already visited/installed the
-// app would keep being served the OLD cached versions of these files.
-const CACHE_NAME = "shop-shell-v4";
+// Bump CACHE_NAME whenever a cached file's content changes, so returning
+// visitors pick up the update instead of being stuck on an old cached copy.
+const CACHE_NAME = "shop-shell-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -112,8 +47,6 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-  // Never try to cache cross-origin calls (Firestore, Cloudinary, Google
-  // Fonts) — this is purely an app-shell cache, not a generic proxy.
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
@@ -134,7 +67,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => cached); // offline and never cached — nothing more we can do for this request
+        .catch(() => cached); // offline and never cached - nothing more we can do for this request
     })
   );
 });
