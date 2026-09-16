@@ -50,7 +50,6 @@
 
         <!-- DASHBOARD -->
         <section id="view-dashboard" class="view">
-          <button id="btn-enable-order-alerts" class="btn btn-primary btn-inline" style="margin-bottom:16px">🔔 Enable New Order Alerts on This Device</button>
           <div class="stat-grid">
             <div class="stat-card"><span id="stat-new">0</span><label>New Orders</label></div>
             <div class="stat-card"><span id="stat-today">0</span><label>Today's Orders</label></div>
@@ -197,14 +196,14 @@
         <label>Price (₹)</label>
         <input name="price" type="number" min="0" step="0.01" required />
         <label>Stock Quantity</label>
-        <input name="stock" type="number" min="0" required />
+        <input name="stock" type="number" min="0" step="1" required />
         <label>Photo (max 5MB)</label>
         <input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp" />
         <img id="product-image-preview" class="image-preview hidden" />
         <label>Available to customers?</label>
         <select name="active"><option value="true">Available</option><option value="false">Hidden</option></select>
         <div class="notify-row">
-          <label><input type="checkbox" id="product-notify" /> Notify customers about this change</label>
+          <label><input type="checkbox" id="product-notify" /> Announce this change in the customer app</label>
         </div>
         <button type="submit" class="btn btn-primary btn-inline">Save Product</button>
       </form>
@@ -243,13 +242,7 @@
       <button class="modal-close" data-close="modal-announcement-form">✕</button>
       <h2>New Announcement</h2>
       <form id="announcement-form" class="form-grid">
-        <label>Type</label>
-        <select name="type">
-          <option value="general">General Announcement</option>
-          <option value="new_product">New Product</option>
-          <option value="price_update">Price Update</option>
-          <option value="back_in_stock">Back in Stock</option>
-        </select>
+        <input type="hidden" name="type" value="general" />
         <label>Title (English)</label>
         <input name="title_en" required />
         <label>Title (Malayalam)</label>
@@ -258,9 +251,7 @@
         <textarea name="body_en" rows="3" required></textarea>
         <label>Message (Malayalam)</label>
         <textarea name="body_ml" rows="3"></textarea>
-        <label>Send Push Notification?</label>
-        <select name="sendNotification"><option value="true">Yes</option><option value="false">No, just show in history</option></select>
-        <button type="submit" class="btn btn-primary btn-inline">Send</button>
+        <button type="submit" class="btn btn-primary btn-inline">Post Announcement</button>
       </form>
     </div>
   </div>
