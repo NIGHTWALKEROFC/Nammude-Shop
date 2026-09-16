@@ -1,20 +1,22 @@
 // customer/js/app.js
-// Vanilla JS, no build step, no framework — kept deliberately small so the
+// Vanilla JS, no build step, no framework - kept deliberately small so the
 // site stays fast on older/cheaper phones and uses as little Firestore
 // bandwidth as possible.
+//
+// Push notifications have been removed from this build entirely (no
+// Firebase Cloud Messaging, no service-worker push handlers, no relay
+// server). The in-app "Notifications" tab still works - it is just a
+// live Firestore feed of shop announcements, unrelated to push.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, doc, getDoc, setDoc, collection, onSnapshot,
+  getFirestore, doc, getDoc, collection, onSnapshot,
   query, orderBy, limit, runTransaction, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  getMessaging, getToken, onMessage, isSupported as messagingIsSupported,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
-import { firebaseConfig, VAPID_KEY, SHOP_ID, PUSH_RELAY_URL, PUSH_RELAY_KEY } from "../../shared/js/firebase-config.js";
+import { firebaseConfig, SHOP_ID } from "../../shared/js/firebase-config.js";
 import { t, getLang, setLang, applyTranslations } from "../../shared/js/i18n.js";
-import { generateOrderCode, formatCurrency, debounce, getCart, saveCart, clearCart, triggerPushRelay } from "../../shared/js/utils.js";
+import { generateOrderCode, formatCurrency, debounce, getCart, saveCart, clearCart, describeError } from "../../shared/js/utils.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -29,13 +31,7 @@ let searchTerm = "";
 let sortMode = "default";
 let inStockOnly = false;
 let shopData = {};
-
-// The current device's FCM push token, cached in memory once known — used
-// so a customer's order can carry their own token for order-status pushes
-// (see checkout below). Never re-requests permission on its own; only
-// populated if permission is already granted (see primeFcmToken below) or
-// right after someone grants it via the onboarding/notifications screen.
-let cachedFcmToken = null;
+let shopLoaded = false;
 
 // ---------------------------------------------------------------
 // Small DOM helpers
@@ -53,7 +49,7 @@ function toast(msg) {
 }
 
 // =================================================================
-// STEP 1 — LANGUAGE
+// STEP 1 - LANGUAGE
 // =================================================================
 function initLanguageStep() {
   const saved = localStorage.getItem("shop_lang");
@@ -88,7 +84,7 @@ function initLanguageStep() {
 }
 
 // =================================================================
-// STEP 2 — ADD TO HOME SCREEN
+// STEP 2 - ADD TO HOME SCREEN
 // =================================================================
 let deferredInstallPrompt = null;
 window.addEventListener("beforeinstallprompt", (e) => {
@@ -109,18 +105,13 @@ function initAddHomeStep() {
           : "Tap Share → 'Add to Home Screen'"
       );
     }
-    goToNotifyStep();
+    goToApp();
   });
-  $("#btn-add-home-skip").addEventListener("click", goToNotifyStep);
-}
-
-function goToNotifyStep() {
-  hide($("#screen-addhome"));
-  show($("#screen-notify"));
+  $("#btn-add-home-skip").addEventListener("click", goToApp);
 }
 
 // =================================================================
-// SERVICE WORKER
+// SERVICE WORKER (offline app-shell caching only - no push)
 // =================================================================
 let swRegistrationPromise = null;
 function ensureServiceWorker() {
@@ -135,134 +126,46 @@ function ensureServiceWorker() {
 }
 
 // =================================================================
-// STEP 3 — NOTIFICATIONS
-// =================================================================
-function initNotifyStep() {
-  $("#btn-enable-notify").addEventListener("click", async () => {
-    await enablePushNotifications();
-    goToApp();
-  });
-  $("#btn-notify-skip").addEventListener("click", goToApp);
-}
-
-async function enablePushNotifications() {
-  try {
-    if (!("Notification" in window)) return "unsupported";
-    if (Notification.permission === "denied") return "denied";
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return "denied";
-
-    const supported = await messagingIsSupported().catch(() => false);
-    if (!supported) return "unsupported";
-
-    const reg = await ensureServiceWorker();
-    if (!reg) return "error";
-
-    const messaging = getMessaging(app);
-    const fcmToken = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
-    if (!fcmToken) return "error";
-    cachedFcmToken = fcmToken;
-
-    await setDoc(doc(db, "notificationSubscriptions", fcmToken), {
-      shopId: SHOP_ID,
-      lang: getLang(),
-      platform: navigator.platform || "web",
-      updatedAt: serverTimestamp(),
-    });
-
-    onMessage(messaging, (payload) => {
-      toast(payload.notification?.title || t("notifications"));
-    });
-    return "granted";
-  } catch (err) {
-    console.warn("Push setup skipped:", err.message);
-    return "error";
-  }
-}
-
-// Silently fetches this device's FCM token if permission was already
-// granted in a past visit — WITHOUT prompting. Called on every app open so
-// cachedFcmToken is ready by the time someone checks out, letting their
-// order carry their own push token for order-status updates (see
-// checkout below). Never blocks app startup — runs in the background.
-async function primeFcmToken() {
-  try {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    const supported = await messagingIsSupported().catch(() => false);
-    if (!supported) return;
-    const reg = await ensureServiceWorker();
-    if (!reg) return;
-    const messaging = getMessaging(app);
-    cachedFcmToken = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg }).catch(() => null);
-  } catch {
-    // Best effort only — if this fails, checkout just proceeds without a
-    // customer token, meaning no order-status push for this order.
-  }
-}
-
-function updateNotifPermissionBanner() {
-  const banner = $("#notif-permission-banner");
-  const text = $("#notif-permission-text");
-  const btn = $("#btn-enable-notify-inline");
-  if (!banner) return;
-
-  if (!("Notification" in window)) { hide(banner); return; }
-
-  if (Notification.permission === "granted") {
-    hide(banner);
-  } else if (Notification.permission === "denied") {
-    show(banner);
-    text.textContent = getLang() === "ml"
-      ? "അറിയിപ്പുകൾ Chrome-ൽ ബ്ലോക്ക് ചെയ്തിരിക്കുന്നു. സൈറ്റ് സെറ്റിംഗ്സിൽ അനുവദിക്കുക."
-      : "Notifications are blocked in Chrome. Enable them in the site's settings to get alerts on your phone.";
-    btn.classList.add("hidden");
-  } else {
-    show(banner);
-    text.textContent = getLang() === "ml"
-      ? "പുതിയ ഓർഡർ അപ്ഡേറ്റുകൾ ഫോണിൽ നേരിട്ട് ലഭിക്കാൻ അറിയിപ്പുകൾ ഓണാക്കുക"
-      : "Turn on notifications to get alerts directly on your phone";
-    btn.classList.remove("hidden");
-  }
-}
-
-$("#btn-enable-notify-inline")?.addEventListener("click", async () => {
-  const result = await enablePushNotifications();
-  updateNotifPermissionBanner();
-  if (result === "granted") toast(t("notifications"));
-});
-
-// =================================================================
 // GO TO MAIN APP
 // =================================================================
+let appStarted = false;
 function goToApp() {
+  if (appStarted) return; // guards against double-invocation (e.g. tapping Skip twice fast)
+  appStarted = true;
   $$(".screen").forEach(hide);
   show($("#app"));
   $("#btn-lang-switch").textContent = getLang().toUpperCase();
   ensureServiceWorker();
-  primeFcmToken(); // fire-and-forget, so checkout can use it if it resolves in time
   loadShop();
   loadCategories();
   loadProducts();
   loadNotifications();
   renderCart();
-  triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "catchup", SHOP_ID, null);
 }
 
 // =================================================================
 // SHOP INFO
 // =================================================================
 async function loadShop() {
-  onSnapshot(doc(db, "shops", SHOP_ID), (snap) => {
-    if (!snap.exists()) return;
-    shopData = snap.data();
-    $("#shop-name").textContent = shopData.name || "Shop";
-    if (shopData.logoUrl) $("#shop-logo").src = shopData.logoUrl;
-    const pill = $("#shop-status");
-    const open = shopData.isOpen !== false;
-    pill.textContent = open ? t("open") : t("closed");
-    pill.classList.toggle("closed", !open);
-    renderCart();
-  });
+  onSnapshot(
+    doc(db, "shops", SHOP_ID),
+    (snap) => {
+      shopLoaded = true;
+      if (!snap.exists()) return;
+      shopData = snap.data();
+      $("#shop-name").textContent = shopData.name || "Shop";
+      if (shopData.logoUrl) $("#shop-logo").src = shopData.logoUrl;
+      const pill = $("#shop-status");
+      const open = shopData.isOpen !== false;
+      pill.textContent = open ? t("open") : t("closed");
+      pill.classList.toggle("closed", !open);
+      renderCart();
+    },
+    (err) => {
+      console.error("Failed to load shop info:", err);
+      toast(describeError(err, t));
+    }
+  );
 }
 
 // =================================================================
@@ -270,10 +173,14 @@ async function loadShop() {
 // =================================================================
 function loadCategories() {
   const q = query(collection(db, "shops", SHOP_ID, "categories"), orderBy("order", "asc"));
-  onSnapshot(q, (snap) => {
-    categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    renderCategoryNav();
-  });
+  onSnapshot(
+    q,
+    (snap) => {
+      categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderCategoryNav();
+    },
+    (err) => console.error("Failed to load categories:", err)
+  );
 }
 
 function renderCategoryNav() {
@@ -300,13 +207,20 @@ function renderCategoryNav() {
 // =================================================================
 function loadProducts() {
   const q = query(collection(db, "shops", SHOP_ID, "products"), orderBy("name_en", "asc"));
-  onSnapshot(q, (snap) => {
-    products = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((p) => p.active !== false);
-    renderProducts();
-    renderCart();
-  });
+  onSnapshot(
+    q,
+    (snap) => {
+      products = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((p) => p.active !== false);
+      renderProducts();
+      renderCart();
+    },
+    (err) => {
+      console.error("Failed to load products:", err);
+      toast(describeError(err, t));
+    }
+  );
 }
 
 const LOW_STOCK_THRESHOLD = 5;
@@ -362,7 +276,7 @@ function renderProducts() {
 }
 
 function escapeHtml(str = "") {
-  return str.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 $("#search-input").addEventListener("input", debounce((e) => {
@@ -564,12 +478,74 @@ $("#btn-cart-nav").addEventListener("click", () => openModal("modal-cart"));
 $("#btn-cart-floating").addEventListener("click", () => openModal("modal-cart"));
 
 // =================================================================
-// CHECKOUT — a single order-code attempt is used (not a retry loop): with
-// 5 random characters from a 32-symbol alphabet, that's ~32 million
-// possible codes, so a collision is astronomically unlikely and not worth
-// extra code complexity. In the rare event it happens, the person just
-// taps "Place Order" again, which generates a fresh random code.
+// CHECKOUT
 // =================================================================
+// Attempts a single order-code write inside a transaction. Resolves with
+// the order code on success, or throws one of:
+//   "ORDER_CODE_TAKEN" - that exact 5-character code is already in use
+//                         (retried automatically by placeOrder below)
+//   "OUT_OF_STOCK" / "PRODUCT_MISSING" - cart is stale, shown to the user
+//   any other Error - unexpected (network, permission, etc.)
+async function attemptCheckout(items, customerName, phone, address, note, deliveryFee) {
+  const orderCode = generateOrderCode(shopData.orderPrefix || "SHOP");
+
+  await runTransaction(db, async (tx) => {
+    const orderRef = doc(db, "shops", SHOP_ID, "orders", orderCode);
+    const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists()) throw new Error("ORDER_CODE_TAKEN");
+
+    const productRefs = items.map(([id]) => doc(db, "shops", SHOP_ID, "products", id));
+    const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+
+    let subtotal = 0;
+    const orderItems = [];
+
+    productSnaps.forEach((snap, idx) => {
+      const [productId, qty] = items[idx];
+      if (!snap.exists()) throw new Error("PRODUCT_MISSING");
+      const p = snap.data();
+      const currentStock = p.stock ?? 0;
+      if (currentStock < qty) throw new Error("OUT_OF_STOCK");
+
+      subtotal += (p.price || 0) * qty;
+      orderItems.push({
+        productId,
+        name_en: p.name_en || "",
+        name_ml: p.name_ml || "",
+        price: p.price || 0,
+        qty,
+      });
+
+      tx.update(productRefs[idx], { stock: currentStock - qty });
+    });
+
+    tx.set(orderRef, {
+      shopId: SHOP_ID,
+      customerName,
+      phone,
+      address,
+      note,
+      items: orderItems,
+      subtotal,
+      deliveryFee,
+      total: subtotal + deliveryFee,
+      status: "New",
+      lang: getLang(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+
+  return orderCode;
+}
+
+// A single order-code attempt collides only astronomically rarely (5
+// random characters from a 32-symbol alphabet = ~32 million combinations),
+// but rather than surface that as an error and make the customer tap
+// "Place Order" again, this retries a couple of times with a fresh random
+// code before giving up.
+const MAX_CHECKOUT_ATTEMPTS = 3;
+
 $("#checkout-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -580,6 +556,13 @@ $("#checkout-form").addEventListener("submit", async (e) => {
   const cart = getCart();
   const items = Object.entries(cart);
   if (items.length === 0) { submitBtn.disabled = false; submitBtn.textContent = t("placeOrder"); return; }
+
+  if (!shopLoaded) {
+    toast(t("errorOffline"));
+    submitBtn.disabled = false;
+    submitBtn.textContent = t("placeOrder");
+    return;
+  }
 
   if (shopData.isOpen === false) {
     toast(t("shopClosedError"));
@@ -610,66 +593,33 @@ $("#checkout-form").addEventListener("submit", async (e) => {
   const address = form.address.value.trim();
   const note = form.note.value.trim();
   const deliveryFee = Number(shopData.deliveryFee) || 0;
-  const orderCode = generateOrderCode(shopData.orderPrefix || "SHOP");
 
-  try {
-    await runTransaction(db, async (tx) => {
-      const orderRef = doc(db, "shops", SHOP_ID, "orders", orderCode);
-      const orderSnap = await tx.get(orderRef);
-      if (orderSnap.exists()) throw new Error("ORDER_CODE_TAKEN");
+  if (!customerName || !phone) {
+    toast(t("fieldRequired"));
+    submitBtn.disabled = false;
+    submitBtn.textContent = t("placeOrder");
+    return;
+  }
 
-      const productRefs = items.map(([id]) => doc(db, "shops", SHOP_ID, "products", id));
-      const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+  let orderCode = null;
+  let lastErr = null;
 
-      let subtotal = 0;
-      const orderItems = [];
+  for (let attempt = 1; attempt <= MAX_CHECKOUT_ATTEMPTS; attempt++) {
+    try {
+      orderCode = await attemptCheckout(items, customerName, phone, address, note, deliveryFee);
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (err.message !== "ORDER_CODE_TAKEN") break; // any other error: stop retrying, handle below
+      // else: extremely rare collision, loop again with a fresh random code
+    }
+  }
 
-      productSnaps.forEach((snap, idx) => {
-        const [productId, qty] = items[idx];
-        if (!snap.exists()) throw new Error("PRODUCT_MISSING");
-        const p = snap.data();
-        const currentStock = p.stock ?? 0;
-        if (currentStock < qty) throw new Error("OUT_OF_STOCK");
-
-        subtotal += (p.price || 0) * qty;
-        orderItems.push({
-          productId,
-          name_en: p.name_en || "",
-          name_ml: p.name_ml || "",
-          price: p.price || 0,
-          qty,
-        });
-
-        tx.update(productRefs[idx], { stock: currentStock - qty });
-      });
-
-      tx.set(orderRef, {
-        shopId: SHOP_ID,
-        customerName,
-        phone,
-        address,
-        note,
-        items: orderItems,
-        subtotal,
-        deliveryFee,
-        total: subtotal + deliveryFee,
-        status: "New",
-        lang: getLang(),
-        // Lets the push relay send THIS customer a push when their order's
-        // status changes later — null if they never granted notification
-        // permission, in which case they just check "My Orders" manually.
-        customerToken: cachedFcmToken || null,
-        ownerAlertSent: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    });
-
+  if (orderCode) {
     const mine = JSON.parse(localStorage.getItem("shop_my_orders") || "[]");
     mine.unshift(orderCode);
     localStorage.setItem("shop_my_orders", JSON.stringify(mine.slice(0, 20)));
-
-    triggerPushRelay(PUSH_RELAY_URL, PUSH_RELAY_KEY, "order", SHOP_ID, orderCode);
 
     clearCart();
     renderCart();
@@ -677,19 +627,20 @@ $("#checkout-form").addEventListener("submit", async (e) => {
     closeModal("modal-cart");
     $("#confirm-order-id").textContent = orderCode;
     openModal("modal-confirm");
-  } catch (err) {
+  } else {
+    const err = lastErr || new Error("UNKNOWN");
     if (err.message === "OUT_OF_STOCK" || err.message === "PRODUCT_MISSING") {
       toast(t("stockChanged"));
     } else if (err.message === "ORDER_CODE_TAKEN") {
-      toast(t("errorGeneric")); // extremely rare — tapping Place Order again generates a fresh code
-    } else {
-      console.error(err);
+      // Ran out of retries - vanishingly unlikely, but be honest about it.
       toast(t("errorGeneric"));
+    } else {
+      toast(describeError(err, t));
     }
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = t("placeOrder");
   }
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = t("placeOrder");
 });
 
 // =================================================================
@@ -697,9 +648,14 @@ $("#checkout-form").addEventListener("submit", async (e) => {
 // =================================================================
 async function checkOrder(orderCode) {
   if (!orderCode) return null;
-  const snap = await getDoc(doc(db, "shops", SHOP_ID, "orders", orderCode.trim().toUpperCase()));
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  try {
+    const snap = await getDoc(doc(db, "shops", SHOP_ID, "orders", orderCode.trim().toUpperCase()));
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...snap.data() };
+  } catch (err) {
+    console.error("Order lookup failed:", err);
+    return null;
+  }
 }
 
 function renderOrderCard(order) {
@@ -718,7 +674,7 @@ function renderOrderCard(order) {
   return div;
 }
 
-// Re-adds a past order's items to the current cart — capping each
+// Re-adds a past order's items to the current cart - capping each
 // quantity at whatever stock is currently available, and silently
 // skipping items that no longer exist or are hidden/out of stock.
 function reorder(order) {
@@ -774,52 +730,56 @@ $("#order-lookup-input").addEventListener("keydown", (e) => {
 });
 
 // =================================================================
-// NOTIFICATIONS
+// NOTIFICATIONS (Firestore-backed announcement feed - not push)
 // =================================================================
 let latestNotifTs = 0;
 let notificationsFirstLoad = true;
 
 function loadNotifications() {
   const q = query(collection(db, "shops", SHOP_ID, "notifications"), orderBy("createdAt", "desc"), limit(30));
-  onSnapshot(q, (snap) => {
-    const list = $("#notifications-list");
-    const lang = getLang();
-    list.innerHTML = "";
-    $("#notifications-empty").classList.toggle("hidden", !snap.empty);
+  onSnapshot(
+    q,
+    (snap) => {
+      const list = $("#notifications-list");
+      const lang = getLang();
+      list.innerHTML = "";
+      $("#notifications-empty").classList.toggle("hidden", !snap.empty);
 
-    snap.forEach((d) => {
-      const n = d.data();
-      const title = lang === "ml" && n.title_ml ? n.title_ml : n.title_en;
-      const body = lang === "ml" && n.body_ml ? n.body_ml : n.body_en;
-      const card = document.createElement("div");
-      card.className = "notification-card";
-      card.innerHTML = `
-        <div class="notification-card-title">${escapeHtml(title || "")}</div>
-        <div>${escapeHtml(body || "")}</div>
-        <span class="notification-card-time">${formatTime(n.createdAt)}</span>
-      `;
-      list.appendChild(card);
+      snap.forEach((d) => {
+        const n = d.data();
+        const title = lang === "ml" && n.title_ml ? n.title_ml : n.title_en;
+        const body = lang === "ml" && n.body_ml ? n.body_ml : n.body_en;
+        const card = document.createElement("div");
+        card.className = "notification-card";
+        card.innerHTML = `
+          <div class="notification-card-title">${escapeHtml(title || "")}</div>
+          <div>${escapeHtml(body || "")}</div>
+          <span class="notification-card-time">${formatTime(n.createdAt)}</span>
+        `;
+        list.appendChild(card);
 
-      const ts = n.createdAt?.toMillis ? n.createdAt.toMillis() : 0;
-      if (ts > latestNotifTs) latestNotifTs = ts;
-    });
-
-    const lastSeen = Number(localStorage.getItem("shop_notif_last_seen") || 0);
-
-    if (!notificationsFirstLoad) {
-      snap.docChanges().forEach((change) => {
-        if (change.type !== "added") return;
-        const n = change.doc.data();
         const ts = n.createdAt?.toMillis ? n.createdAt.toMillis() : 0;
-        if (ts > lastSeen) {
-          const title = lang === "ml" && n.title_ml ? n.title_ml : n.title_en;
-          toast(`🔔 ${title || t("notifications")}`);
-        }
+        if (ts > latestNotifTs) latestNotifTs = ts;
       });
-    }
-    notificationsFirstLoad = false;
-    setNotifBadge(latestNotifTs > lastSeen);
-  });
+
+      const lastSeen = Number(localStorage.getItem("shop_notif_last_seen") || 0);
+
+      if (!notificationsFirstLoad) {
+        snap.docChanges().forEach((change) => {
+          if (change.type !== "added") return;
+          const n = change.doc.data();
+          const ts = n.createdAt?.toMillis ? n.createdAt.toMillis() : 0;
+          if (ts > lastSeen) {
+            const title = lang === "ml" && n.title_ml ? n.title_ml : n.title_en;
+            toast(`🔔 ${title || t("notifications")}`);
+          }
+        });
+      }
+      notificationsFirstLoad = false;
+      setNotifBadge(latestNotifTs > lastSeen);
+    },
+    (err) => console.error("Failed to load notifications:", err)
+  );
 }
 
 function setNotifBadge(on) {
@@ -855,8 +815,12 @@ $("#btn-contact-nav").addEventListener("click", () => {
     a.className = "btn btn-primary";
     a.href = `https://wa.me/${shopData.whatsapp}`;
     a.target = "_blank";
+    a.rel = "noopener noreferrer";
     a.textContent = t("whatsappShop");
     box.appendChild(a);
+  }
+  if (!shopData.phone && !shopData.whatsapp) {
+    box.innerHTML = `<p style="margin:0">${escapeHtml(t("errorGeneric"))}</p>`;
   }
   openModal("modal-contact");
 });
@@ -876,7 +840,7 @@ $$(".nav-btn[data-view]").forEach((btn) => {
       el.classList.toggle("hidden", v !== view);
     });
     if (view === "orders") loadMyOrders();
-    if (view === "notifications") { markNotificationsSeen(); updateNotifPermissionBanner(); }
+    if (view === "notifications") markNotificationsSeen();
   });
 });
 
@@ -912,4 +876,3 @@ updateSortUI();
 ensureServiceWorker();
 initLanguageStep();
 initAddHomeStep();
-initNotifyStep();
