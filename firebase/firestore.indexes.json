@@ -1,13 +1,4 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "notifications",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "sendPush", "order": "ASCENDING" },
-        { "fieldPath": "pushSent", "order": "ASCENDING" }
-      ]
-    }
-  ],
+  "indexes": [],
   "fieldOverrides": []
 }
